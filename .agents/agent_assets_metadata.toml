@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "JVMbfl-m5cYqIwd7guq8b"
+uri = "file://flipstudio.tar.gz"
+type = "unspecified"
+title = "FlipStudio — Source Code"
