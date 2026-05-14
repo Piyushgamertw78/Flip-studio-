@@ -660,6 +660,9 @@ export default function Studio() {
         <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setLocation(`/projects/${projectId}/export`)} data-testid="button-export">
           <Download className="w-3.5 h-3.5" /> Export
         </Button>
+
+        <div className="w-px h-6 bg-border mx-1" />
+        <span className="text-[10px] text-muted-foreground/40 select-none">Made By Piyush</span>
       </div>
 
       {/* Main Area */}

@@ -13,8 +13,8 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats();
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="min-h-screen bg-background p-8 flex flex-col">
+      <div className="max-w-7xl mx-auto space-y-8 flex-1 w-full">
         <header className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center gap-3">
@@ -130,6 +130,11 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+      <div className="max-w-7xl mx-auto w-full pt-8">
+        <p className="text-center text-xs text-muted-foreground/50 select-none">
+          Made By Piyush
+        </p>
       </div>
     </div>
   );
