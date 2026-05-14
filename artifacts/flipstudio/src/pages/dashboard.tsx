@@ -1,14 +1,17 @@
 import { useLocation } from "wouter";
-import { Plus, Film, Clock, Download, ArrowRight, LayoutGrid } from "lucide-react";
+import { Plus, Film, Clock, Download, ArrowRight, LayoutGrid, LogOut, PenLine } from "lucide-react";
 import { format } from "date-fns";
 import { useListProjects, useGetDashboardStats } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Watermark } from "@/components/watermark";
+import { useAuth } from "@/lib/auth";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
+  const { user, logout } = useAuth();
   const { data: projects, isLoading: projectsLoading } = useListProjects();
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats();
 
@@ -23,10 +26,21 @@ export default function Dashboard() {
             </h1>
             <p className="text-muted-foreground mt-2">Professional 2D Animation Studio</p>
           </div>
-          <Button size="lg" onClick={() => setLocation("/projects/new")} className="gap-2">
-            <Plus className="w-5 h-5" />
-            New Project
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setLocation("/whiteboard")}>
+              <PenLine className="w-4 h-4" /> Whiteboard
+            </Button>
+            <Button size="lg" onClick={() => setLocation("/projects/new")} className="gap-2">
+              <Plus className="w-5 h-5" />
+              New Project
+            </Button>
+            {user && (
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={() => { logout(); }}>
+                <LogOut className="w-4 h-4" />
+                {user.username}
+              </Button>
+            )}
+          </div>
         </header>
 
         {statsLoading ? (

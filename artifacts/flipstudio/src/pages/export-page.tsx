@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,7 @@ import {
   ArrowLeft, Download, Loader2, CheckCircle2, XCircle, Film,
   ImageIcon, Video, Zap,
 } from "lucide-react";
+import { Watermark } from "@/components/watermark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -251,6 +252,7 @@ export default function ExportPage() {
           </Card>
         )}
       </div>
+      <Watermark />
     </div>
   );
 }
