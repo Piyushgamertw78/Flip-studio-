@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "FlipStudio — Animation Studio"
+version = "1.0.0"
+id = "artifacts/flipstudio"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20657
+
+[services.development]
+run = "pnpm --filter @workspace/flipstudio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/flipstudio", "run", "build" ]
+publicDir = "artifacts/flipstudio/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20657"
+BASE_PATH = "/"

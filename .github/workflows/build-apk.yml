@@ -1,0 +1,152 @@
+name: Build & Deploy FlipStudio
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-web:
+    name: Build Web App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build all packages
+        env:
+          PORT: 3000
+          BASE_PATH: /
+          NODE_ENV: production
+        run: pnpm run build
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipstudio-web-dist
+          path: artifacts/flipstudio/dist/
+          retention-days: 7
+
+  build-android-apk:
+    name: Build Android APK (Capacitor)
+    runs-on: ubuntu-latest
+    needs: build-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: flipstudio-web-dist
+          path: artifacts/flipstudio/dist/
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Capacitor CLI globally
+        run: npm install -g @capacitor/cli
+
+      - name: Sync Capacitor Android
+        working-directory: artifacts/flipstudio
+        run: |
+          pnpm add @capacitor/core @capacitor/android --save-exact || true
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: artifacts/flipstudio/android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipstudio-debug-apk
+          path: artifacts/flipstudio/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      - name: Build release APK (unsigned)
+        working-directory: artifacts/flipstudio/android
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipstudio-release-apk
+          path: artifacts/flipstudio/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 30
+
+  create-zip:
+    name: Create Source ZIP
+    runs-on: ubuntu-latest
+    needs: build-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create project ZIP
+        run: |
+          zip -r flipstudio-source.zip . \
+            --exclude ".git/*" \
+            --exclude "node_modules/*" \
+            --exclude "*/node_modules/*" \
+            --exclude "dist/*" \
+            --exclude "*/.turbo/*"
+
+      - name: Upload source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipstudio-source
+          path: flipstudio-source.zip
+          retention-days: 30
