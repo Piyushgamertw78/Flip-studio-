@@ -140,9 +140,10 @@ export default function Studio() {
   const [projectNameVal, setProjectNameVal]   = useState("");
 
   // Animation
-  const [isPlaying, setIsPlaying]   = useState(false);
-  const [loopPlay, setLoopPlay]     = useState(true);
-  const [pingPong, setPingPong]     = useState(false);
+  const [isPlaying, setIsPlaying]       = useState(false);
+  const [loopPlay, setLoopPlay]         = useState(true);
+  const [pingPong, setPingPong]         = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1); // 0.25 × · 0.5 × · 1× · 2× · 4×
   const [showOnionSkin, setShowOnionSkin] = useState(true);
   const [onionPrev, setOnionPrev]   = useState(2);
   const [onionNext, setOnionNext]   = useState(1);
@@ -446,12 +447,12 @@ export default function Studio() {
           }
           return next;
         });
-      }, 1000 / (project?.fps ?? 12));
+      }, 1000 / ((project?.fps ?? 12) * playbackSpeed));
     } else {
       if (playTimer.current) { clearInterval(playTimer.current); playTimer.current = null; }
     }
     return () => { if (playTimer.current) clearInterval(playTimer.current); };
-  }, [isPlaying, frames, project?.fps, loopPlay, pingPong]);
+  }, [isPlaying, frames, project?.fps, loopPlay, pingPong, playbackSpeed]);
 
   // ─── Save ───────────────────────────────────────────────────────────────────
   const saveCurrentLayerData = useCallback(async () => {
@@ -1954,6 +1955,21 @@ export default function Studio() {
             pingPong ? "border-fuchsia-500/35 text-fuchsia-400" : "border-white/[0.07] text-white/20")}
             onClick={() => setPingPong(p => !p)}>
             <Repeat2 className="w-2.5 h-2.5"/> Ping
+          </button>
+
+          {/* Speed control */}
+          <button
+            onClick={() => setPlaybackSpeed(s => {
+              const opts = [0.25, 0.5, 1, 2, 4];
+              const idx = opts.indexOf(s);
+              return opts[(idx + 1) % opts.length]!;
+            })}
+            className={cn(
+              "text-[10px] px-2 py-1 rounded-full border transition-colors font-mono tabular-nums",
+              playbackSpeed !== 1 ? "border-cyan-500/35 text-cyan-400" : "border-white/[0.07] text-white/20"
+            )}
+            title="Playback speed">
+            {playbackSpeed}×
           </button>
 
           <button className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border border-violet-500/35 text-violet-400 hover:bg-violet-600/10 transition-colors"
