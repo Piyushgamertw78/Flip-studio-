@@ -102,9 +102,20 @@ function getSymmetryPoints(pt: Point, mode: SymmetryMode): Point[] {
 
 export default function Studio() {
   const { id } = useParams<{ id: string }>();
-  const projectId = Number(id);
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
+    const projectId = Number(id);
+    const [, setLocation] = useLocation();
+    const { toast } = useToast();
+
+    // Android hardware back button — go to dashboard instead of exiting the app
+    // (auto-save fires every 1.2s so work is preserved)
+    useEffect(() => {
+      const onBack = (e: Event) => {
+        e.preventDefault();
+        setLocation("/");
+      };
+      document.addEventListener("backbutton", onBack);
+      return () => document.removeEventListener("backbutton", onBack);
+    }, [setLocation]);
 
   const [project, setProject]   = useState<Project | null>(null);
   const [frames, setFrames]     = useState<Frame[]>([]);
@@ -119,7 +130,7 @@ export default function Studio() {
 
   // Tool state
   const [tool, setTool]             = useState<Tool>("pencil");
-  const [color, setColor]           = useState("#000000");
+  const [color, setColor]           = useState("#ffffff");
   const [size, setSize]             = useState(6);
   const [opacity, setOpacity]       = useState(100);
   const [hardness, setHardness]     = useState(80);
@@ -134,7 +145,7 @@ export default function Studio() {
 
   // UI panels
   const [showLayersPanel, setShowLayersPanel] = useState(false);
-  const [showColorPanel, setShowColorPanel]   = useState(false);
+  const [showColorPanel, setShowColorPanel]   = useState(true);
   const [showBrushPanel, setShowBrushPanel]   = useState(false);
   const [showTimelineTools, setShowTimelineTools] = useState(false);
   const [showSettings, setShowSettings]       = useState(false);
@@ -1189,7 +1200,7 @@ export default function Studio() {
     <div className="h-screen w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none"
       onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* ── Top Bar ── */}
-      <div className="h-11 flex items-center px-2 gap-1 border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20">
+      <div className="h-11 flex items-center px-2 gap-1 border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20 overflow-x-auto">
         <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/8 transition-colors"
           onClick={async () => { await saveCurrentLayerData(); setLocation("/"); }}>
           <ArrowLeft className="w-4 h-4"/>
@@ -1323,18 +1334,30 @@ export default function Studio() {
 
           <div className="w-7 h-px bg-white/[0.06] mb-1"/>
 
-          {/* Color swatch */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button className="w-9 h-9 rounded-xl border-2 border-white/15 hover:border-violet-500 transition-all shadow-md"
-                style={{ backgroundColor: color }} onClick={() => setShowColorPanel(p => !p)}/>
-            </TooltipTrigger>
-            <TooltipContent side="right">Color Panel</TooltipContent>
-          </Tooltip>
+          {/* Color swatch — tap to open full color panel */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="w-10 h-10 rounded-xl border-[3px] transition-all shadow-lg"
+                  style={{ backgroundColor: color, borderColor: showColorPanel ? "#a78bfa" : "rgba(255,255,255,0.2)" }}
+                  onClick={() => setShowColorPanel(p => !p)}/>
+              </TooltipTrigger>
+              <TooltipContent side="right">Color Picker</TooltipContent>
+            </Tooltip>
 
-          <div className="w-7 h-px bg-white/[0.06] my-1"/>
+            {/* Always-visible quick color strip */}
+            <div className="w-full flex flex-col items-center gap-0.5 px-1 mt-1 mb-1">
+              {(["#ffffff","#000000","#ef4444","#f97316","#eab308","#22c55e","#3b82f6","#8b5cf6","#ec4899"] as const).map(c => (
+                <button key={c}
+                  className="w-8 h-8 rounded-lg border-2 transition-all active:scale-95"
+                  style={{ backgroundColor: c, borderColor: color === c ? "#a78bfa" : "rgba(255,255,255,0.06)" }}
+                  onClick={() => commitColor(c)}/>
+              ))}
+            </div>
 
-          {/* Quick actions */}
+            <div className="w-7 h-px bg-white/[0.06] my-1"/>
+
+                      {/* Quick actions */}
           <Tooltip><TooltipTrigger asChild>
             <button className="w-9 h-9 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={flipH}>
               <FlipHorizontal2 className="w-4 h-4"/>
