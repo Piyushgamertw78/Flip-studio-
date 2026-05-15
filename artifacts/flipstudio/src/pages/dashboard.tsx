@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { db, type Project } from "@/lib/local-db";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { Watermark } from "@/components/watermark";
 
 const TEMPLATE_PROJECTS = [
   { name: "Bouncing Ball",     fps: 24, width: 800,  height: 600,  bg: "#ffffff", icon: "⚽", desc: "Classic animation basics" },
@@ -840,6 +841,7 @@ export default function Dashboard() {
           onCreate={t => void createFromTemplate(t)}
         />
       )}
+      <Watermark />
     </div>
   );
 }
