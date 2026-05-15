@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetProject, useListFrames, useListLayers, useCreateFrame,
   useUpdateFrame, useDeleteFrame, useDuplicateFrame, useCreateLayer,
-  useUpdateLayer, useDeleteLayer,
+  useUpdateLayer, useDeleteLayer, useUpdateProjectThumbnail,
   getListFramesQueryKey, getListLayersQueryKey, getGetProjectQueryKey,
 } from "@workspace/api-client-react";
 import {
@@ -122,6 +122,7 @@ export default function Studio() {
   const createLayer = useCreateLayer();
   const updateLayer = useUpdateLayer();
   const deleteLayer = useDeleteLayer();
+  const updateThumbnail = useUpdateProjectThumbnail();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -267,11 +268,20 @@ export default function Studio() {
   const getCurrentStrokes = () => currentFrame ? parseCD(currentFrame.canvasData).strokes : [];
 
   const saveFrameData = useCallback(async (frameId: number, strokes: Stroke[]) => {
-    await updateFrame.mutateAsync({ projectId, frameId, data: { canvasData: JSON.stringify({ strokes }) } });
+    const thumbnail = canvasRef.current?.toDataURL("image/png", 0.4) ?? undefined;
+    await updateFrame.mutateAsync({
+      projectId, frameId,
+      data: { canvasData: JSON.stringify({ strokes }), thumbnailData: thumbnail },
+    });
+    // Update project thumbnail from current frame
+    if (thumbnail) {
+      updateThumbnail.mutate({ projectId, data: { thumbnailData: thumbnail } });
+    }
     queryClient.invalidateQueries({ queryKey: getListFramesQueryKey(projectId) });
-  }, [projectId, updateFrame, queryClient]);
+  }, [projectId, updateFrame, updateThumbnail, queryClient]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     if (e.button === 1 || activeTool === "move") {
       isPanningRef.current = true;
       panStartRef.current = { x: e.clientX, y: e.clientY, px: panX, py: panY };
