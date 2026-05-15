@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Skeleton } from "@/components/ui/skeleton";
 import { Watermark } from "@/components/watermark";
 import { cn } from "@/lib/utils";
-import { useMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 type Tool =
   | "pencil" | "pen" | "brush" | "eraser" | "fill" | "move"
@@ -111,7 +111,7 @@ export default function Studio() {
   const projectId = Number(params.id);
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const isMobile = useMobile();
+  const isMobile = useIsMobile();
 
   const { data: project, isLoading: projectLoading } = useGetProject(projectId, { query: { queryKey: getGetProjectQueryKey(projectId) } });
   const { data: frames = [], isLoading: framesLoading } = useListFrames(projectId, { query: { queryKey: getListFramesQueryKey(projectId) } });
