@@ -1200,98 +1200,80 @@ export default function Studio() {
     <div className="h-screen w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none"
       onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* ── Top Bar ── */}
-      <div className="h-11 flex items-center px-2 gap-1 border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20 overflow-x-auto">
-        <button className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/8 transition-colors"
-          onClick={async () => { await saveCurrentLayerData(); setLocation("/"); }}>
-          <ArrowLeft className="w-4 h-4"/>
-        </button>
+        <div className="h-12 flex items-center border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20">
 
-        {showRenameProject ? (
-          <div className="flex items-center gap-1">
-            <input autoFocus value={projectNameVal} onChange={e => setProjectNameVal(e.target.value)}
-              onBlur={saveProjectName} onKeyDown={e => { if (e.key === "Enter") void saveProjectName(); if (e.key === "Escape") setShowRenameProject(false); }}
-              className="bg-white/8 border border-violet-500/30 rounded-lg text-sm font-semibold text-white px-2 py-1 outline-none w-40"/>
+          {/* Fixed LEFT: back + project name */}
+          <div className="flex items-center gap-1 px-1 shrink-0">
+            <button className="w-10 h-10 rounded-xl flex items-center justify-center text-white/50 hover:text-white hover:bg-white/8 transition-colors active:scale-95"
+              onClick={async () => { await saveCurrentLayerData(); setLocation("/"); }}>
+              <ArrowLeft className="w-5 h-5"/>
+            </button>
+            {showRenameProject ? (
+              <input autoFocus value={projectNameVal} onChange={e => setProjectNameVal(e.target.value)}
+                onBlur={saveProjectName}
+                onKeyDown={e => { if (e.key === "Enter") void saveProjectName(); if (e.key === "Escape") setShowRenameProject(false); }}
+                className="bg-white/8 border border-violet-500/30 rounded-lg text-sm font-bold text-white px-2 py-1 outline-none w-32"/>
+            ) : (
+              <button className="text-sm font-bold text-white/80 hover:text-white transition-colors max-w-[110px] truncate"
+                onClick={() => setShowRenameProject(true)}>
+                {project.name}
+              </button>
+            )}
           </div>
-        ) : (
-          <button className="flex items-center gap-1 text-sm font-semibold text-white/70 hover:text-white transition-colors"
-            onClick={() => setShowRenameProject(true)}>
-            {project.name}
-            <Edit3 className="w-3 h-3 text-white/25"/>
-          </button>
-        )}
 
-        <div className="text-[10px] text-white/20 ml-1">{CW}×{CH} · {project.fps}fps</div>
+          {/* Scrollable CENTER: symmetry + grid + undo/redo */}
+          <div className="flex-1 flex items-center gap-0.5 overflow-x-auto px-1 min-w-0" style={{ scrollbarWidth: "none" }}>
+            <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 shrink-0">
+              {SYMMETRY_OPTIONS.map(m => (
+                <Tooltip key={m}>
+                  <TooltipTrigger asChild>
+                    <button className={cn("w-7 h-6 rounded text-[9px] font-bold transition-all",
+                      symmetryMode === m ? "bg-violet-600 text-white" : "text-white/30 hover:text-white hover:bg-white/8")}
+                      onClick={() => setSymmetryMode(m)}>
+                      {m === "none" ? "OFF" : m === "horizontal" ? "H" : m === "vertical" ? "V" : m === "both" ? "HV" : m === "radial4" ? "4X" : "8X"}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{m === "none" ? "No Symmetry" : m + " Symmetry"}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+            <button onClick={() => setShowGrid(s => !s)} title="Grid"
+              className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0",
+                showGrid ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/8")}>
+              <Grid3X3 className="w-4 h-4"/>
+            </button>
+            <div className="w-px h-5 bg-white/[0.07] shrink-0"/>
+            <button onClick={undo} title="Undo" className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors shrink-0">
+              <Undo2 className="w-4 h-4"/>
+            </button>
+            <button onClick={redo} title="Redo" className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors shrink-0">
+              <Redo2 className="w-4 h-4"/>
+            </button>
+          </div>
 
-        <div className="flex-1"/>
-
-        {/* Symmetry */}
-        <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 mr-1">
-          {SYMMETRY_OPTIONS.map(m => (
-            <Tooltip key={m}>
-              <TooltipTrigger asChild>
-                <button className={cn("w-7 h-6 rounded text-[9px] font-bold transition-all",
-                  symmetryMode === m ? "bg-violet-600 text-white" : "text-white/30 hover:text-white hover:bg-white/8")}
-                  onClick={() => setSymmetryMode(m)}>
-                  {m === "none" ? "OFF" : m === "horizontal" ? "H" : m === "vertical" ? "V" : m === "both" ? "HV" : m === "radial4" ? "4X" : "8X"}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{m === "none" ? "No Symmetry" : `${m} Symmetry`}</TooltipContent>
-            </Tooltip>
-          ))}
+          {/* Fixed RIGHT: Export always visible, never scrolls off */}
+          <div className="flex items-center gap-1 px-1.5 shrink-0">
+            <button onClick={exportCurrentFrame} title="Save frame as PNG"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
+              <Film className="w-4 h-4"/>
+            </button>
+            <button onClick={() => setLocation("/projects/" + projectId + "/export")}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[13px] font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95 shrink-0">
+              <Download className="w-4 h-4"/> Export
+            </button>
+          </div>
         </div>
-
-        <button onClick={() => setShowGrid(s => !s)} title="Grid"
-          className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-            showGrid ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/8")}>
-          <Grid3X3 className="w-4 h-4"/>
-        </button>
-        <button onClick={() => setShowRulers(s => !s)} title="Rulers"
-          className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-            showRulers ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/8")}>
-          <Target className="w-4 h-4"/>
-        </button>
-
-        <div className="w-px h-5 bg-white/[0.07] mx-1"/>
-
-        <button onClick={undo} title="Undo (Ctrl+Z)" className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
-          <Undo2 className="w-4 h-4"/>
-        </button>
-        <button onClick={redo} title="Redo (Ctrl+Y)" className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
-          <Redo2 className="w-4 h-4"/>
-        </button>
-
-        <div className="w-px h-5 bg-white/[0.07] mx-1"/>
-
-        <button onClick={exportCurrentFrame} title="Save current frame as PNG"
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
-          <Film className="w-4 h-4"/>
-        </button>
-        {/* Quick PNG export for drawings */}
-        <button onClick={exportCurrentFrame} title="Export as PNG (drawing)"
-          className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-white/10 text-white/40 hover:text-white hover:border-white/20 transition-colors">
-          PNG
-        </button>
-        {/* Full export — GIF/Video/PNG-seq */}
-        <button onClick={() => setLocation(`/projects/${projectId}/export`)}
-          className="flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95">
-          <Download className="w-3.5 h-3.5"/> Export GIF
-        </button>
-        <button onClick={() => setShowShortcuts(s => !s)} title="Shortcuts"
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors ml-1">
-          <MoreHorizontal className="w-4 h-4"/>
-        </button>
-      </div>
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* ── Tool Bar ── */}
-        <div className="w-12 flex flex-col items-center bg-[#0b0b18] border-r border-white/[0.06] shrink-0 overflow-y-auto py-1">
+        <div className="w-13 flex flex-col items-center bg-[#0b0b18] border-r border-white/[0.06] shrink-0 overflow-y-auto py-1" style={{ width: 52 }}>
           {/* Group: draw */}
           <div className="w-full flex flex-col items-center gap-0.5 px-1 mb-1">
             {ALL_TOOLS.filter(t => t.group === "draw").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1307,7 +1289,7 @@ export default function Studio() {
             {ALL_TOOLS.filter(t => t.group === "nav").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1323,7 +1305,7 @@ export default function Studio() {
             {ALL_TOOLS.filter(t => t.group === "shape").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1349,7 +1331,7 @@ export default function Studio() {
             <div className="w-full flex flex-col items-center gap-0.5 px-1 mt-1 mb-1">
               {(["#ffffff","#000000","#ef4444","#f97316","#eab308","#22c55e","#3b82f6","#8b5cf6","#ec4899"] as const).map(c => (
                 <button key={c}
-                  className="w-8 h-8 rounded-lg border-2 transition-all active:scale-95"
+                  className="w-9 h-9 rounded-lg border-2 transition-all active:scale-95"
                   style={{ backgroundColor: c, borderColor: color === c ? "#a78bfa" : "rgba(255,255,255,0.06)" }}
                   onClick={() => commitColor(c)}/>
               ))}
@@ -1359,31 +1341,31 @@ export default function Studio() {
 
                       {/* Quick actions */}
           <Tooltip><TooltipTrigger asChild>
-            <button className="w-9 h-9 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={flipH}>
+            <button className="w-10 h-10 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={flipH}>
               <FlipHorizontal2 className="w-4 h-4"/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Flip Horizontal</TooltipContent></Tooltip>
 
           <Tooltip><TooltipTrigger asChild>
-            <button className="w-9 h-9 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={flipV}>
+            <button className="w-10 h-10 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={flipV}>
               <FlipVIcon/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Flip Vertical</TooltipContent></Tooltip>
 
           <Tooltip><TooltipTrigger asChild>
-            <button className="w-9 h-9 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={copyLayer}>
+            <button className="w-10 h-10 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={copyLayer}>
               <Copy className="w-4 h-4"/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Copy Layer (Ctrl+C)</TooltipContent></Tooltip>
 
           <Tooltip><TooltipTrigger asChild>
-            <button className="w-9 h-9 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={pasteLayer}>
+            <button className="w-10 h-10 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.06] flex items-center justify-center" onClick={pasteLayer}>
               <Clipboard className="w-4 h-4"/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Paste Layer (Ctrl+V)</TooltipContent></Tooltip>
 
           <Tooltip><TooltipTrigger asChild>
-            <button className="w-9 h-9 rounded-xl text-red-400/40 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" onClick={clearCurrentLayer}>
+            <button className="w-10 h-10 rounded-xl text-red-400/40 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" onClick={clearCurrentLayer}>
               <Trash2 className="w-4 h-4"/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Clear Layer</TooltipContent></Tooltip>
@@ -1392,7 +1374,7 @@ export default function Studio() {
 
           {/* Brush settings toggle */}
           <Tooltip><TooltipTrigger asChild>
-            <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+            <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
               showBrushPanel ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
               onClick={() => setShowBrushPanel(p => !p)}>
               <SlidersHorizontal className="w-4 h-4"/>
@@ -1401,7 +1383,7 @@ export default function Studio() {
 
           {/* Layers panel toggle */}
           <Tooltip><TooltipTrigger asChild>
-            <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
+            <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
               showLayersPanel ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
               onClick={() => setShowLayersPanel(p => !p)}>
               <Layers className="w-4 h-4"/>
