@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Watermark } from "@/components/watermark";
 import { useLocation } from "wouter";
 import { Eye, EyeOff, Loader2, Sparkles, User, Lock, Mail, ArrowRight, Film } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -312,6 +313,7 @@ export default function LoginPage() {
           FlipStudio v2.0 · Made with passion
         </p>
       </div>
+      <Watermark />
     </div>
   );
 }
