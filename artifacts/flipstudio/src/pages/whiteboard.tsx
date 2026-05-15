@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
     ArrowLeft, Pencil, Eraser, Square, Circle, Minus, Type,
     Trash2, Download, ZoomIn, ZoomOut, Grid3X3, Undo2, Redo2,
     PaintBucket, Move, Maximize2, Triangle, ArrowRight as ArrowTool, X,
-    Palette,
+    Palette, Users, Copy, Check, Link, Wifi, WifiOff,
   } from "lucide-react";
   import { Watermark } from "@/components/watermark";
   import { cn } from "@/lib/utils";
@@ -74,6 +74,67 @@ import { useState, useRef, useEffect, useCallback } from "react";
     const [showGrid, setShowGrid] = useState(true);
     const [bgColor, setBgColor] = useState("#111115");
     const [showColorPanel, setShowColorPanel] = useState(false);
+
+    // ── Multiplayer collab state ──
+    const [roomId, setRoomId] = useState("");
+    const [inputRoom, setInputRoom] = useState("");
+    const [showCollabPanel, setShowCollabPanel] = useState(false);
+    const [collabPeers, setCollabPeers] = useState(0);
+    const [collabConnected, setCollabConnected] = useState(false);
+    const sseRef = useRef<EventSource | null>(null);
+    const isCollab = useRef(false);
+
+    const getApiBase = () => {
+      if (typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.()) {
+        return "https://" + (import.meta.env.VITE_API_HOST ?? "localhost");
+      }
+      return "";
+    };
+
+    const joinRoom = (id: string) => {
+      if (sseRef.current) { sseRef.current.close(); }
+      const base = getApiBase();
+      const sse = new EventSource(base + "/api/collab/rooms/" + id + "/join");
+      sse.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data) as { type: string; peers?: number; stroke?: unknown };
+          if (msg.type === "welcome" || msg.type === "peer_joined" || msg.type === "peer_left") {
+            setCollabPeers(msg.peers ?? 0);
+          }
+          if (msg.type === "stroke") {
+            const s = (msg as any) as Stroke;
+            strokesRef.current.push(s);
+            redrawAll();
+          }
+        } catch { /* ignore */ }
+      };
+      sse.onopen = () => { setCollabConnected(true); isCollab.current = true; };
+      sse.onerror = () => setCollabConnected(false);
+      sseRef.current = sse;
+      setRoomId(id);
+      setShowCollabPanel(false);
+    };
+
+    const leaveRoom = () => {
+      sseRef.current?.close();
+      sseRef.current = null;
+      isCollab.current = false;
+      setCollabConnected(false);
+      setRoomId("");
+      setCollabPeers(0);
+    };
+
+    const broadcastStroke = (stroke: Stroke) => {
+      if (!isCollab.current || !roomId) return;
+      const base = getApiBase();
+      void fetch(base + "/api/collab/rooms/" + roomId + "/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(stroke),
+      }).catch(() => {});
+    };
+
+    useEffect(() => { return () => sseRef.current?.close(); }, []);
 
     const strokesRef = useRef<Stroke[]>([]);
     const undoStackRef = useRef<Stroke[][]>([]);
@@ -215,7 +276,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
       isDrawingRef.current = false;
       const overlay = overlayRef.current;
       if (overlay) { const ctx = overlay.getContext("2d"); if (ctx) ctx.clearRect(0, 0, CANVAS_W, CANVAS_H); }
-      strokesRef.current.push(currentStrokeRef.current);
+      const finishedStroke = currentStrokeRef.current;
+      strokesRef.current.push(finishedStroke);
+      broadcastStroke(finishedStroke);
       currentStrokeRef.current = null;
       redrawAll();
     };
@@ -287,8 +350,17 @@ import { useState, useRef, useEffect, useCallback } from "react";
           <button onClick={() => setZoom(z => Math.min(8, z * 1.25))} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"><ZoomIn className="w-4 h-4" /></button>
           <button onClick={() => { setZoom(1); setPanX(0); setPanY(0); }} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"><Maximize2 className="w-4 h-4" /></button>
           <button onClick={clearAll} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-4 h-4" /></button>
+          {/* Collab button */}
+          <button onClick={() => setShowCollabPanel(p => !p)}
+            className={cn("flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold transition-colors shrink-0",
+              collabConnected
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                : "bg-white/10 hover:bg-white/20 text-white/60")}>
+            {collabConnected ? <Wifi className="w-3.5 h-3.5" /> : <Users className="w-3.5 h-3.5" />}
+            {collabConnected ? <span className="ml-1">{collabPeers + 1}</span> : null}
+          </button>
           <button onClick={exportPng} className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white transition-colors shrink-0">
-            <Download className="w-3.5 h-3.5" /><span className="hidden xs:inline">PNG</span>
+            <Download className="w-3.5 h-3.5" /><span>PNG</span>
           </button>
         </div>
 
@@ -324,6 +396,84 @@ import { useState, useRef, useEffect, useCallback } from "react";
               </button>
             ))}
           </div>
+
+          {/* Collab panel */}
+          {showCollabPanel && (
+            <div className="absolute left-0 right-0 top-0 z-50 bg-[#0f0f1e] border-b border-white/15 p-4 shadow-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                    <Users className="w-4 h-4 text-violet-400"/>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Collab Drawing</p>
+                    <p className="text-[11px] text-white/40">Draw together in real-time</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCollabPanel(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10">
+                  <X className="w-4 h-4"/>
+                </button>
+              </div>
+
+              {collabConnected ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <Wifi className="w-4 h-4 text-emerald-400 shrink-0"/>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-emerald-300">Connected — Room: <span className="font-mono">{roomId}</span></p>
+                      <p className="text-[11px] text-white/40">{collabPeers} other{collabPeers !== 1 ? "s" : ""} drawing</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => void navigator.clipboard.writeText(roomId)}
+                      className="flex-1 h-9 rounded-xl bg-white/8 hover:bg-white/12 text-xs font-semibold text-white/70 flex items-center justify-center gap-1.5 transition-colors">
+                      <Copy className="w-3.5 h-3.5"/> Copy Room Code
+                    </button>
+                    <button onClick={leaveRoom}
+                      className="flex-1 h-9 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-xs font-semibold text-red-400 flex items-center justify-center gap-1.5 transition-colors border border-red-500/20">
+                      <WifiOff className="w-3.5 h-3.5"/> Leave
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[11px] text-white/40 mb-2 font-semibold">CREATE a new room or JOIN with a code</p>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 bg-white/8 border border-white/12 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-violet-500/50 font-mono placeholder:text-white/20"
+                        placeholder="Room code (e.g. piyush42)"
+                        value={inputRoom}
+                        onChange={e => setInputRoom(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""))}
+                        onKeyDown={e => e.key === "Enter" && inputRoom && joinRoom(inputRoom)}
+                      />
+                      <button
+                        disabled={!inputRoom}
+                        onClick={() => joinRoom(inputRoom)}
+                        className="px-4 h-10 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-bold transition-colors">
+                        Join
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-px bg-white/10"/>
+                    <span className="text-[10px] text-white/25 font-semibold">OR</span>
+                    <div className="flex-1 h-px bg-white/10"/>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const code = Math.random().toString(36).slice(2, 8);
+                      setInputRoom(code);
+                      joinRoom(code);
+                    }}
+                    className="w-full h-10 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white text-sm font-bold transition-all flex items-center justify-center gap-2">
+                    <Link className="w-4 h-4"/> Create New Room
+                  </button>
+                  <p className="text-[10px] text-white/25 text-center">Share the room code with friends so they can join</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Floating color picker panel */}
           {showColorPanel && (
