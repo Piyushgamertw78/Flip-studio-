@@ -423,3 +423,63 @@ body { overscroll-behavior: none; }
   border: 2px solid #07070f;
   animation: pulseGlow 2s infinite;
 }
+
+  /* ════════════════════════════════════════════════════
+     PAGE TRANSITIONS
+  ════════════════════════════════════════════════════ */
+
+  @keyframes pageEnter {
+    from { opacity: 0; transform: translateX(24px) scale(0.98); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  @keyframes pageEnterFromLeft {
+    from { opacity: 0; transform: translateX(-24px) scale(0.98); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  @keyframes pageEnterUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .page-enter {
+    animation: pageEnter 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  .page-enter-left {
+    animation: pageEnterFromLeft 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  .page-enter-up {
+    animation: pageEnterUp 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  /* Bottom sheet slide-up */
+  @keyframes sheetUp {
+    from { opacity: 0; transform: translateY(100%); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .sheet-up {
+    animation: sheetUp 0.32s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+  }
+
+  /* Haptic feedback ripple for touch */
+  @keyframes touchRipple {
+    from { transform: scale(0.94); }
+    to   { transform: scale(1); }
+  }
+
+  /* Smooth tool button active */
+  .tool-btn {
+    transition: background 0.12s ease, transform 0.1s ease, box-shadow 0.12s ease;
+  }
+  .tool-btn:active { transform: scale(0.88); }
+
+  /* Bottom bar hide on scroll */
+  .hide-on-draw { transition: opacity 0.3s ease, transform 0.3s ease; }
+  
