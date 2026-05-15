@@ -85,7 +85,7 @@ name: Release APK
 
               ### Install Instructions
               1. Download `FlipStudio-${{ github.ref_name }}.apk`
-              2. On your Android device, go to **Settings → Security → Unknown sources** and enable it
+              2. On your Android device go to **Settings → Security → Unknown sources** and enable it
               3. Open the downloaded APK and tap **Install**
 
               > Built from commit ${{ github.sha }}
