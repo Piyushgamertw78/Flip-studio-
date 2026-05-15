@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 interface Prefs {
   autosave: boolean;
+  autosaveInterval: number;
   onionSkinning: boolean;
   showGrid: boolean;
   hapticFeedback: boolean;
@@ -23,12 +24,16 @@ interface Prefs {
   compactUI: boolean;
   exportFormat: "gif" | "png" | "mp4";
   defaultBrushSize: number;
+  defaultOpacity: number;
   defaultFps: number;
   gridSize: number;
+  thumbnailQuality: "low" | "medium" | "high";
+  antialiasing: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
   autosave: true,
+  autosaveInterval: 1200,
   onionSkinning: true,
   showGrid: false,
   hapticFeedback: true,
@@ -40,8 +45,11 @@ const DEFAULT_PREFS: Prefs = {
   compactUI: false,
   exportFormat: "gif",
   defaultBrushSize: 8,
+  defaultOpacity: 100,
   defaultFps: 12,
   gridSize: 32,
+  thumbnailQuality: "medium",
+  antialiasing: true,
 };
 
 function loadPrefs(): Prefs {
@@ -251,6 +259,26 @@ export default function SettingsPage() {
                 className="w-full accent-violet-500"/>
             </div>
             <div>
+              <label className="text-[11px] text-white/40 font-semibold uppercase tracking-wider mb-1.5 block">Default Opacity: {prefs.defaultOpacity}%</label>
+              <input type="range" min={10} max={100} step={5} value={prefs.defaultOpacity}
+                onChange={e => setPref("defaultOpacity", parseInt(e.target.value))}
+                className="w-full accent-violet-500"/>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 font-semibold uppercase tracking-wider mb-1.5 block">Auto-save Delay: {(prefs.autosaveInterval / 1000).toFixed(1)}s</label>
+              <div className="flex gap-2">
+                {[600, 1200, 2000, 3000, 5000].map(ms => (
+                  <button key={ms} onClick={() => setPref("autosaveInterval", ms)}
+                    className={cn("flex-1 h-9 rounded-xl text-xs font-bold transition-all press",
+                      prefs.autosaveInterval === ms
+                        ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40"
+                        : "glass-btn")}>
+                    {(ms / 1000).toFixed(1)}s
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="text-[11px] text-white/40 font-semibold uppercase tracking-wider mb-1.5 block">Default FPS: {prefs.defaultFps}</label>
               <div className="flex gap-2">
                 {[8, 12, 15, 24, 30].map(f => (
@@ -274,6 +302,20 @@ export default function SettingsPage() {
                         ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40"
                         : "glass-btn")}>
                     {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/40 font-semibold uppercase tracking-wider mb-1.5 block">Thumbnail Quality</label>
+              <div className="flex gap-2">
+                {(["low","medium","high"] as const).map(q => (
+                  <button key={q} onClick={() => setPref("thumbnailQuality", q)}
+                    className={cn("flex-1 h-9 rounded-xl text-xs font-bold capitalize transition-all press",
+                      prefs.thumbnailQuality === q
+                        ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40"
+                        : "glass-btn")}>
+                    {q}
                   </button>
                 ))}
               </div>
@@ -305,18 +347,25 @@ export default function SettingsPage() {
 
         {/* Keyboard shortcuts hint */}
         <div className="glass-panel rounded-2xl p-4">
-          <SectionHeader icon={<Keyboard className="w-4 h-4"/>} title="Keyboard Shortcuts" desc="Studio hotkeys"/>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ["B", "Brush"], ["E", "Eraser"], ["G", "Fill"], ["L", "Line"],
-              ["Ctrl+Z", "Undo"], ["Ctrl+Y", "Redo"], ["Space", "Pan"], ["[/]", "Brush size"],
-            ].map(([key, label]) => (
-              <div key={key} className="flex items-center gap-2">
-                <kbd className="px-1.5 py-0.5 rounded-md bg-white/8 border border-white/12 text-[10px] font-mono text-white/60 font-bold">{key}</kbd>
-                <span className="text-[11px] text-white/40">{label}</span>
+          <SectionHeader icon={<Keyboard className="w-4 h-4"/>} title="Keyboard Shortcuts" desc="Studio hotkeys — works with hardware keyboard"/>
+          {[
+            { group: "Tools", items: [["P","Pencil"],["B","Brush"],["E","Eraser"],["G","Calligraphy"],["F","Fill"],["I","Eyedropper"],["T","Text / Type"],["S","Select"],["V","Pan / Move"],["Q","Polygon"],["L","Line"],["R","Rectangle"],["O","Ellipse"]] },
+            { group: "Actions", items: [["Ctrl+Z","Undo"],["Ctrl+Y","Redo"],["Ctrl+C","Copy layer"],["Ctrl+V","Paste layer"],["Del","Clear layer"],["Space","Play / Pause"]] },
+            { group: "Canvas", items: [["[","Brush size −"],["]","Brush size +"],["Ctrl+ +","Zoom in"],["Ctrl+ −","Zoom out"],["Ctrl+0","Reset zoom"],["Escape","Cancel / Exit"]] },
+            { group: "Frames", items: [["←","Prev frame"],["→","Next frame"],["Ctrl+D","Duplicate frame"],["Ctrl+Del","Delete frame"]] },
+          ].map(section => (
+            <div key={section.group} className="mb-3">
+              <p className="text-[9px] text-white/25 uppercase tracking-wider font-bold mb-2">{section.group}</p>
+              <div className="grid grid-cols-2 gap-y-1.5 gap-x-3">
+                {section.items.map(([key, label]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <kbd className="px-1.5 py-0.5 rounded-md bg-white/8 border border-white/12 text-[9px] font-mono text-white/60 font-bold whitespace-nowrap shrink-0">{key}</kbd>
+                    <span className="text-[10px] text-white/40 truncate">{label}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
 
         {/* About */}
