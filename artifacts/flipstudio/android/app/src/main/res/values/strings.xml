@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FlipStudio</string>
+    <string name="title_activity_main">FlipStudio</string>
+    <string name="package_name">com.flipstudio.app</string>
+    <string name="custom_url_scheme">com.flipstudio.app</string>
+</resources>
