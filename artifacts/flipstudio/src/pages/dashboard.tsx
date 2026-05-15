@@ -37,19 +37,21 @@ function formatDuration(frames: number, fps: number) {
   return Math.floor(secs / 60) + "m " + Math.round(secs % 60) + "s";
 }
 
-function StatsBar({ projects }: { projects: Project[] }) {
-  const totalFrames = 0;
+function StatsBar({ projects, totalFrames, storageLabel }: { projects: Project[]; totalFrames: number; storageLabel: string }) {
+  const thisWeek = projects.filter(p => Date.now() - new Date(p.createdAt).getTime() < 7 * 86400000).length;
+  const stats = [
+    { label: "Projects",   value: projects.length, sub: storageLabel,        icon: <Folder className="w-3.5 h-3.5"/>,     color: "text-violet-400" },
+    { label: "Frames",     value: totalFrames,      sub: "total",             icon: <Film className="w-3.5 h-3.5"/>,       color: "text-fuchsia-400" },
+    { label: "This Week",  value: thisWeek,         sub: "new project" + (thisWeek !== 1 ? "s" : ""), icon: <TrendingUp className="w-3.5 h-3.5"/>, color: "text-cyan-400" },
+  ];
   return (
     <div className="grid grid-cols-3 gap-2 mb-4">
-      {[
-        { label: "Projects", value: projects.length, icon: <Folder className="w-3.5 h-3.5"/>, color: "text-violet-400" },
-        { label: "Frames", value: totalFrames, icon: <Film className="w-3.5 h-3.5"/>, color: "text-fuchsia-400" },
-        { label: "This Week", value: projects.filter(p => Date.now() - new Date(p.createdAt).getTime() < 7*86400000).length, icon: <TrendingUp className="w-3.5 h-3.5"/>, color: "text-cyan-400" },
-      ].map(s => (
+      {stats.map(s => (
         <div key={s.label} className="glass-card rounded-2xl p-3 text-center">
-          <div className={cn("flex items-center justify-center gap-1 mb-1", s.color)}>{s.icon}</div>
-          <div className="text-lg font-black text-white">{s.value}</div>
-          <div className="text-[10px] text-white/35">{s.label}</div>
+          <div className={cn("flex items-center justify-center mb-1", s.color)}>{s.icon}</div>
+          <div className="text-lg font-black text-white leading-none">{s.value}</div>
+          <div className="text-[9px] text-white/35 mt-0.5 leading-tight">{s.label}</div>
+          <div className="text-[8px] text-white/20 mt-0.5">{s.sub}</div>
         </div>
       ))}
     </div>
@@ -289,6 +291,9 @@ export default function Dashboard() {
   const [showUserMenu, setShowUserMenu]       = useState(false);
   const [showTemplates, setShowTemplates]     = useState(false);
   const [refreshing, setRefreshing]           = useState(false);
+  const [totalFrames, setTotalFrames]         = useState(0);
+  const [storageLabel, setStorageLabel]       = useState("0 KB");
+  const importRef                             = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const all = await db.projects.list();
@@ -296,6 +301,29 @@ export default function Dashboard() {
     setLoading(false);
     setRefreshing(false);
   }, []);
+
+  // Async total-frame count — runs after projects load
+  useEffect(() => {
+    if (projects.length === 0) { setTotalFrames(0); setStorageLabel("0 KB"); return; }
+    let cancelled = false;
+    const count = async () => {
+      let frames = 0;
+      let bytes = 0;
+      for (const p of projects) {
+        try {
+          const fs = await db.frames.listByProject(p.id);
+          frames += fs.length;
+          for (const f of fs) bytes += (f.canvasData?.length ?? 0);
+        } catch {}
+      }
+      if (cancelled) return;
+      setTotalFrames(frames);
+      const kb = bytes / 1024;
+      setStorageLabel(kb > 1024 ? (kb / 1024).toFixed(1) + " MB" : Math.round(kb) + " KB");
+    };
+    void count();
+    return () => { cancelled = true; };
+  }, [projects]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -369,6 +397,82 @@ export default function Dashboard() {
     await db.projects.update(p.id, { tags: newTags });
     setProjects(prev => prev.map(pr => pr.id === p.id ? { ...pr, tags: newTags } : pr));
   }, []);
+
+  // ── Export all projects as a JSON backup file ──────────────────────────────
+  const exportBackup = useCallback(async () => {
+    setShowUserMenu(false);
+    try {
+      const all = await db.projects.list();
+      const data = [];
+      for (const p of all) {
+        const frames = await db.frames.listByProject(p.id);
+        const framesWithLayers = [];
+        for (const f of frames) {
+          const layers = await db.layers.listByFrame(f.id);
+          framesWithLayers.push({ ...f, layers });
+        }
+        data.push({ ...p, frames: framesWithLayers });
+      }
+      const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), projects: data }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `flipstudio-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Backup downloaded!", description: `${all.length} project${all.length !== 1 ? "s" : ""} exported` });
+    } catch (err) {
+      toast({ title: "Export failed", description: String(err), variant: "destructive" });
+    }
+  }, [toast]);
+
+  // ── Import projects from a JSON backup ─────────────────────────────────────
+  const importBackup = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const raw = JSON.parse(ev.target?.result as string);
+        const projectsData = raw.projects ?? raw; // support both versioned and raw array
+        if (!Array.isArray(projectsData)) throw new Error("Invalid backup format");
+        let imported = 0;
+        for (const p of projectsData) {
+          const now = new Date().toISOString();
+          const projectId = await db.projects.create({
+            name: p.name + " (imported)", description: p.description ?? "",
+            width: p.width, height: p.height, fps: p.fps,
+            backgroundColor: p.backgroundColor ?? "#ffffff",
+            thumbnail: "", createdAt: now, updatedAt: now, tags: p.tags ?? [],
+          });
+          for (const f of (p.frames ?? [])) {
+            const frameId = await db.frames.create({
+              projectId, order: f.order ?? 0, duration: f.duration ?? 0,
+              canvasData: f.canvasData ?? JSON.stringify({ strokes: [] }),
+              thumbnail: "", createdAt: now,
+            });
+            for (const l of (f.layers ?? [])) {
+              await db.layers.create({
+                frameId, projectId, name: l.name ?? "Layer 1",
+                order: l.order ?? 0, visible: l.visible ?? true, locked: l.locked ?? false,
+                opacity: l.opacity ?? 100, blendMode: l.blendMode ?? "source-over",
+                canvasData: l.canvasData ?? JSON.stringify({ strokes: [] }), createdAt: now,
+              });
+            }
+          }
+          imported++;
+        }
+        await load();
+        toast({ title: `Imported ${imported} project${imported !== 1 ? "s" : ""}!`, description: "Your backup has been restored." });
+      } catch (err) {
+        toast({ title: "Import failed", description: String(err), variant: "destructive" });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // reset so same file can be re-imported
+  }, [load, toast]);
 
   const createFromTemplate = useCallback(async (t: typeof TEMPLATE_PROJECTS[0]) => {
     const now = new Date().toISOString();
@@ -501,6 +605,19 @@ export default function Dashboard() {
                         onClick={() => { setShowUserMenu(false); setFilterTag(f => f === "starred" ? "all" : "starred"); }}>
                         <Star className="w-3.5 h-3.5 text-amber-400"/> Starred Projects
                       </button>
+                      <button className="w-full text-left px-4 py-2.5 text-xs text-white/55 hover:bg-white/6 flex items-center gap-2.5 transition-colors"
+                        onClick={() => { setShowUserMenu(false); setLocation("/whiteboard"); }}>
+                        <Palette className="w-3.5 h-3.5 text-cyan-400"/> Whiteboard
+                      </button>
+                      <div className="h-px bg-white/8 mx-3 my-1"/>
+                      <button className="w-full text-left px-4 py-2.5 text-xs text-white/55 hover:bg-white/6 flex items-center gap-2.5 transition-colors"
+                        onClick={() => void exportBackup()}>
+                        <Download className="w-3.5 h-3.5 text-green-400"/> Export Backup
+                      </button>
+                      <button className="w-full text-left px-4 py-2.5 text-xs text-white/55 hover:bg-white/6 flex items-center gap-2.5 transition-colors"
+                        onClick={() => { setShowUserMenu(false); importRef.current?.click(); }}>
+                        <Upload className="w-3.5 h-3.5 text-blue-400"/> Import Backup
+                      </button>
                       <div className="h-px bg-white/8 mx-3 my-1"/>
                       <button className="w-full text-left px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2.5 transition-colors"
                         onClick={() => { setShowUserMenu(false); logout(); }}>
@@ -518,7 +635,7 @@ export default function Dashboard() {
       {/* Content */}
       <main className="flex-1 px-4 py-4 pb-28 relative z-1">
         {/* Stats */}
-        {!loading && projects.length > 0 && <StatsBar projects={projects} />}
+        {!loading && projects.length > 0 && <StatsBar projects={projects} totalFrames={totalFrames} storageLabel={storageLabel} />}
 
         {/* Filter + Sort bar */}
         <div className="flex items-center gap-2 mb-3">
@@ -674,6 +791,9 @@ export default function Dashboard() {
         )}
       </main>
 
+      {/* Hidden import input */}
+      <input ref={importRef} type="file" accept=".json" className="hidden" onChange={importBackup}/>
+
       {/* FAB */}
       {!selectionMode && (
         <div className="fixed bottom-6 right-5 z-30 flex flex-col-reverse items-end gap-3">
@@ -686,8 +806,15 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => setShowTemplates(true)}
-            className="w-12 h-12 rounded-2xl glass-panel flex items-center justify-center text-white/50 hover:text-violet-300 transition-colors press shadow-xl shadow-black/40">
+            className="w-12 h-12 rounded-2xl glass-panel flex items-center justify-center text-white/50 hover:text-violet-300 transition-colors press shadow-xl shadow-black/40"
+            title="Templates">
             <Sparkles className="w-5 h-5"/>
+          </button>
+          <button
+            onClick={() => setLocation("/whiteboard")}
+            className="w-12 h-12 rounded-2xl glass-panel flex items-center justify-center text-white/50 hover:text-cyan-300 transition-colors press shadow-xl shadow-black/40"
+            title="Whiteboard">
+            <Palette className="w-5 h-5"/>
           </button>
         </div>
       )}
