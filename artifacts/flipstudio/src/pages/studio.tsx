@@ -54,12 +54,14 @@ const ALL_TOOLS: { id: Tool; icon: React.ReactNode; label: string; shortcut: str
   { id: "text",        icon: <Type className="w-4 h-4" />,        label: "Text",         shortcut: "X", group: "shape" },
 ];
 
-const PRESET_COLORS = [
-  "#ffffff","#000000","#ef4444","#f97316","#eab308","#22c55e",
-  "#3b82f6","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f59e0b",
-  "#6366f1","#14b8a6","#64748b","#a3a3a3","#7c3aed","#be185d",
-  "#0284c7","#15803d","#b45309","#dc2626","#7c3aed","#0e7490",
-];
+const COLOR_PALETTES: Record<string, string[]> = {
+  Classic: ["#ffffff","#000000","#ef4444","#f97316","#eab308","#22c55e","#3b82f6","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f59e0b"],
+  Pastel:  ["#fce7f3","#fee2e2","#fef3c7","#d1fae5","#dbeafe","#ede9fe","#ccfbf1","#f0fdf4","#fdf4ff","#fff7ed","#f0f9ff","#fef9c3"],
+  Neon:    ["#ff006e","#fb5607","#ffbe0b","#3a86ff","#8338ec","#06d6a0","#ff4d6d","#4cc9f0","#7209b7","#f72585","#4361ee","#4895ef"],
+  Earth:   ["#8b4513","#a0522d","#cd853f","#deb887","#f5deb3","#fffacd","#556b2f","#6b8e23","#2f4f4f","#708090","#a9a9a9","#696969"],
+  Skin:    ["#fde68a","#fcd34d","#fbbf24","#f59e0b","#fdba74","#fb923c","#f97316","#ea580c","#c2410c","#92400e","#78350f","#451a03"],
+  Grays:   ["#ffffff","#f3f4f6","#e5e7eb","#d1d5db","#9ca3af","#6b7280","#4b5563","#374151","#1f2937","#111827","#030712","#000000"],
+};
 
 const SYMMETRY_OPTIONS = ["none","horizontal","vertical","both","radial4","radial8"] as const;
 type SymmetryMode = typeof SYMMETRY_OPTIONS[number];
@@ -126,6 +128,7 @@ export default function Studio() {
   const [zoom, setZoom]             = useState(1);
   const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 });
   const [recentColors, setRecentColors] = useState<string[]>(["#000000","#ffffff","#ef4444","#3b82f6","#22c55e"]);
+  const [activePalette, setActivePalette] = useState<string>("Classic");
 
   // UI panels
   const [showLayersPanel, setShowLayersPanel] = useState(false);
@@ -1445,11 +1448,23 @@ export default function Studio() {
                   </div>
                 );
               })}
-              {/* Preset colors */}
+              {/* Color Palettes */}
               <div className="mt-3">
-                <span className="text-[10px] text-white/30 uppercase tracking-wider">Presets</span>
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {PRESET_COLORS.map(c => (
+                <div className="flex items-center gap-1 flex-wrap mb-1.5">
+                  {Object.keys(COLOR_PALETTES).map(name => (
+                    <button key={name}
+                      onClick={() => setActivePalette(name)}
+                      className={cn("text-[9px] px-1.5 py-0.5 rounded-full border transition-all",
+                        activePalette === name
+                          ? "border-violet-500 text-violet-300 bg-violet-600/15"
+                          : "border-white/10 text-white/30 hover:border-white/20"
+                      )}>
+                      {name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {(COLOR_PALETTES[activePalette] ?? COLOR_PALETTES["Classic"]!).map(c => (
                     <button key={c} className="w-6 h-6 rounded-lg border-2 transition-all hover:scale-110"
                       style={{ backgroundColor: c, borderColor: color === c ? "#8b5cf6" : "transparent" }}
                       onClick={() => commitColor(c)}/>
