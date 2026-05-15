@@ -1,0 +1,169 @@
+name: FlipStudio APK Build
+
+  on:
+    push:
+      branches: [main, master]
+    pull_request:
+      branches: [main, master]
+    workflow_dispatch:
+
+  concurrency:
+    group: flipstudio-apk-${{ github.ref }}
+    cancel-in-progress: true
+
+  jobs:
+    build-apk:
+      name: Build Android Release APK
+      runs-on: ubuntu-latest
+
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+
+        - name: Setup Node.js 22
+          uses: actions/setup-node@v4
+          with:
+            node-version: "22"
+
+        - name: Setup pnpm
+          uses: pnpm/action-setup@v4
+          with:
+            version: "10"
+
+        - name: Cache pnpm store
+          uses: actions/cache@v4
+          with:
+            path: ~/.local/share/pnpm/store
+            key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+            restore-keys: pnpm-${{ runner.os }}-
+
+        - name: Install dependencies
+          run: pnpm install --no-frozen-lockfile
+
+        - name: Build web app (Vite)
+          working-directory: artifacts/flipstudio
+          env:
+            BASE_PATH: "/"
+            NODE_ENV: production
+          run: pnpm run build
+
+        - name: Verify web build output
+          run: |
+            if [ ! -d artifacts/flipstudio/dist/public ]; then
+              echo "ERROR: Web build output not found at artifacts/flipstudio/dist/public"
+              exit 1
+            fi
+            echo "Web build OK — files:"
+            ls -lh artifacts/flipstudio/dist/public/
+
+        - name: Setup Java 21
+          uses: actions/setup-java@v4
+          with:
+            distribution: temurin
+            java-version: "21"
+
+        - name: Setup Android SDK
+          uses: android-actions/setup-android@v3
+
+        - name: Install Android SDK components
+          run: |
+            yes | sdkmanager --licenses 2>/dev/null || true
+            sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+        - name: Set up release keystore
+          run: |
+            if [ -n "${{ secrets.FLIPSTUDIO_KEYSTORE_BASE64 }}" ]; then
+              echo "Using persistent keystore from GitHub Secret"
+              echo "${{ secrets.FLIPSTUDIO_KEYSTORE_BASE64 }}" | base64 -d > flipstudio-release.keystore
+            else
+              echo "WARNING: FLIPSTUDIO_KEYSTORE_BASE64 secret not set — generating a fresh keystore"
+              keytool -genkeypair \
+                -v \
+                -storetype PKCS12 \
+                -keystore flipstudio-release.keystore \
+                -alias flipstudio \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -storepass flipstudio2024 \
+                -keypass flipstudio2024 \
+                -dname "CN=FlipStudio, OU=FlipStudio, O=FlipStudio, L=India, ST=India, C=IN"
+            fi
+            cp flipstudio-release.keystore artifacts/flipstudio/android/app/flipstudio-release.keystore
+            echo "Keystore ready: $(wc -c < artifacts/flipstudio/android/app/flipstudio-release.keystore) bytes"
+
+        - name: Write local.properties
+          working-directory: artifacts/flipstudio/android
+          run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+        - name: Sync Capacitor web assets
+          working-directory: artifacts/flipstudio
+          run: |
+            mkdir -p android/app/src/main/assets
+            cp -r dist/public/. android/app/src/main/assets/
+            echo "Web assets copied to android/app/src/main/assets/"
+            if [ ! -f android/app/src/main/assets/capacitor.plugins.json ]; then
+              echo "[]" > android/app/src/main/assets/capacitor.plugins.json
+            fi
+            cp capacitor.config.json android/app/src/main/assets/capacitor.config.json
+            echo "Capacitor config copied"
+            ./node_modules/.bin/cap sync android --inline 2>/dev/null && echo "cap sync done" || echo "cap sync skipped (not required)"
+
+        - name: Verify Android assets
+          run: |
+            echo "Contents of android/app/src/main/assets:"
+            ls -lh artifacts/flipstudio/android/app/src/main/assets/ || echo "assets dir missing"
+
+        - name: Cache Gradle
+          uses: actions/cache@v4
+          with:
+            path: |
+              ~/.gradle/caches
+              ~/.gradle/wrapper
+            key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/flipstudio/android/**/*.gradle*') }}
+            restore-keys: gradle-${{ runner.os }}-
+
+        - name: Make gradlew executable
+          working-directory: artifacts/flipstudio/android
+          run: chmod +x gradlew
+
+        - name: Build Release APK
+          working-directory: artifacts/flipstudio/android
+          run: |
+            ./gradlew assembleRelease \
+              --no-daemon \
+              --stacktrace \
+              -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
+              -Dorg.gradle.daemon=false
+
+        - name: Locate and rename APK
+          run: |
+            mkdir -p release-output
+            APK=$(find artifacts/flipstudio/android -name "*.apk" -path "*/release/*" | head -1)
+            if [ -z "$APK" ]; then
+              APK=$(find artifacts/flipstudio/android -name "*.apk" | head -1)
+            fi
+            if [ -z "$APK" ]; then
+              echo "ERROR: No APK found after build!"
+              exit 1
+            fi
+            echo "Found APK: $APK"
+            cp "$APK" release-output/FlipStudio.apk
+            ls -lh release-output/
+            jarsigner -verify -verbose -certs release-output/FlipStudio.apk | tail -5
+
+        - name: Upload FlipStudio APK
+          uses: actions/upload-artifact@v4
+          with:
+            name: FlipStudio-Release-APK
+            path: release-output/FlipStudio.apk
+            if-no-files-found: error
+            retention-days: 90
+
+        - name: Summary
+          run: |
+            APK_SIZE=$(du -sh release-output/FlipStudio.apk | cut -f1)
+            echo "## FlipStudio APK" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **Build successful!**" >> $GITHUB_STEP_SUMMARY
+            echo "- Size: $APK_SIZE" >> $GITHUB_STEP_SUMMARY
+  
