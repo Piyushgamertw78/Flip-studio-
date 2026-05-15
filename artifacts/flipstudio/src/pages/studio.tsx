@@ -154,6 +154,9 @@ export default function Studio() {
   const [textInput, setTextInput]   = useState<{ x: number; y: number; val: string } | null>(null);
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
+  // ── Canvas display width (JS-based, avoids CSS min() issues on older Android WebViews) ──
+  const [canvasDisplayW, setCanvasDisplayW] = useState<number>(300);
+
   // ── Reference image ──────────────────────────────────────────────────────────
   const [refImage, setRefImage]         = useState<string | null>(null);
   const [refOpacity, setRefOpacity]     = useState(50);
@@ -190,8 +193,11 @@ export default function Studio() {
   // ─── Load project ───────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
+      // Safety timeout — if DB hangs for any reason, don't leave user on black screen
+      const timeout = setTimeout(() => { setLoading(false); setLocation("/"); }, 12000);
       try {
         const [proj, fs] = await Promise.all([db.projects.get(projectId), db.frames.listByProject(projectId)]);
+        clearTimeout(timeout);
         if (!proj) { setLoading(false); setLocation("/"); return; }
         setProject(proj);
         setFrames(fs);
@@ -207,12 +213,28 @@ export default function Studio() {
         }
         setLoading(false);
       } catch {
+        clearTimeout(timeout);
         setLoading(false);
         setLocation("/");
       }
     };
     void load();
   }, [projectId]);
+
+  // ─── Canvas display size (JS-calculated — CSS min() not supported on older Android WebViews) ───
+  useEffect(() => {
+    const compute = () => {
+      const panelW = showLayersPanel ? 272 : 52;
+      const availW = window.innerWidth - panelW - 8;
+      const availH = window.innerHeight - 215;
+      const ratio = CW / CH;
+      const fromH = availH * ratio;
+      setCanvasDisplayW(Math.max(80, Math.min(availW, fromH)));
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [showLayersPanel, CW, CH]);
 
   const currentFrame   = frames[currentFrameIdx];
   const currentLayer   = layers.find(l => l.id === currentLayerId);
@@ -1105,18 +1127,24 @@ export default function Studio() {
 
   // ─── Render loading ──────────────────────────────────────────────────────────
   if (loading) return (
-    <div className="h-screen w-screen flex items-center justify-center bg-[#080811]">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 animate-pulse"/>
-        <div className="w-6 h-6 rounded-full border-2 border-violet-500 border-t-transparent animate-spin"/>
-        <p className="text-sm text-white/40">Loading FlipStudio…</p>
+    <div className="h-screen w-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg,#200d45 0%,#0d0d2b 50%,#0b1530 100%)" }}>
+      <div className="flex flex-col items-center gap-6">
+        <div className="w-20 h-20 rounded-3xl flex items-center justify-center shadow-2xl" style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7,#ec4899)" }}>
+          <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/>
+          </svg>
+        </div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-full border-4 border-violet-500 border-t-transparent animate-spin" style={{ borderTopColor: "transparent" }}/>
+          <p className="text-lg font-semibold" style={{ color: "#c4b5fd" }}>Opening project…</p>
+          <p className="text-sm" style={{ color: "rgba(196,181,253,0.5)" }}>Loading your canvas</p>
+        </div>
       </div>
     </div>
   );
   if (!project) return null;
 
-  // Give canvas maximum space — subtract only actual UI widths (toolbar=48, layers=224)
-  const canvasPx = { w: `min(calc(100vw - ${showLayersPanel ? 272 : 52}px), calc((100vh - 210px) * ${CW} / ${CH}))` };
+  // canvasDisplayW is computed by the JS resize effect above — avoids CSS min() Android bug
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none"
@@ -1614,7 +1642,7 @@ export default function Studio() {
             {/* Main canvas */}
             <canvas ref={canvasRef} width={CW} height={CH}
               className="block"
-              style={{ width: canvasPx.w, height: "auto" }}
+              style={{ width: canvasDisplayW, height: "auto" }}
             />
             {/* Reference image — semi-transparent overlay for tracing */}
             {refImage && showRefImage && (
@@ -1629,13 +1657,13 @@ export default function Studio() {
             {/* Overlay canvas (shape preview + cursor) */}
             <canvas ref={overlayRef} width={CW} height={CH}
               className="absolute inset-0 pointer-events-none"
-              style={{ width: canvasPx.w, height: "auto" }}
+              style={{ width: canvasDisplayW, height: "auto" }}
             />
             {/* Event canvas on top */}
             <canvas width={CW} height={CH}
               className="absolute inset-0 block"
               style={{
-                width: canvasPx.w, height: "auto",
+                width: canvasDisplayW, height: "auto",
                 cursor: tool === "move" ? "grab" : tool === "text" ? "text" : tool === "eyedropper" ? "crosshair" : "crosshair",
                 touchAction: "none",
                 opacity: 0,
