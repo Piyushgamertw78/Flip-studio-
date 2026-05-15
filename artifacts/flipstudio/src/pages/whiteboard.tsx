@@ -326,7 +326,7 @@ export default function Whiteboard() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[#0a0a0f] text-white overflow-hidden select-none">
       {/* Top Bar */}
-      <div className="h-12 flex items-center px-3 gap-2 border-b border-white/10 bg-black/30 backdrop-blur shrink-0">
+      <div className="h-12 flex items-center px-3 gap-2 border-b border-white/10 bg-black/30 backdrop-blur shrink-0 overflow-x-auto">
         <button className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setLocation("/")}>
           <ArrowLeft className="w-4 h-4" />
         </button>
