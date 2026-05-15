@@ -76,8 +76,14 @@ jobs:
       - name: Update and Sync web assets into Android project
         working-directory: artifacts/flipstudio
         run: |
+          mkdir -p dist/public
           mkdir -p android/app/src/main/assets
-          touch android/app/src/main/assets/capacitor.plugins.json
+          if [ ! -f android/app/src/main/assets/capacitor.plugins.json ]; then
+            echo "{}" > android/app/src/main/assets/capacitor.plugins.json
+          fi
+          if [ ! -f android/app/src/main/assets/capacitor.config.json ]; then
+            cp capacitor.config.json android/app/src/main/assets/capacitor.config.json || echo "{}" > android/app/src/main/assets/capacitor.config.json
+          fi
           ./node_modules/.bin/cap update android
           ./node_modules/.bin/cap sync android
 
