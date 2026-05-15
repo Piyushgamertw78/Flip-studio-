@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Watermark } from "@/components/watermark";
 import { useLocation } from "wouter";
 import { ArrowLeft, Loader2, Sparkles, Film, Monitor, Smartphone, Square, ChevronDown, Zap } from "lucide-react";
 import { db } from "@/lib/local-db";
@@ -368,6 +369,7 @@ export default function NewProjectPage() {
             : <><Sparkles className="w-5 h-5"/> Create Animation</>}
         </button>
       </div>
+      <Watermark />
     </div>
   );
 }
