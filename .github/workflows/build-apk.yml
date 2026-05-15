@@ -1,137 +1,121 @@
 name: Build FlipStudio APK
+  # v2 offline-first build — 2026-05-15T02:44:48.126Z
 
-on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch:
+  on:
+    push:
+      branches: [main, master]
+    pull_request:
+      branches: [main, master]
+    workflow_dispatch:
 
-jobs:
-  build-apk:
-    name: Build Android APK
-    runs-on: ubuntu-latest
+  jobs:
+    build-apk:
+      name: Build Android APK
+      runs-on: ubuntu-latest
 
-    steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────────
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
 
-      # ── 2. Node + pnpm ───────────────────────────────────────────────────────
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+        - name: Setup Node.js 22
+          uses: actions/setup-node@v4
+          with:
+            node-version: "22"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: "10"
+        - name: Setup pnpm
+          uses: pnpm/action-setup@v4
+          with:
+            version: "10"
 
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-
+        - name: Cache pnpm store
+          uses: actions/cache@v4
+          with:
+            path: ~/.local/share/pnpm/store
+            key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+            restore-keys: pnpm-${{ runner.os }}-
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        - name: Install dependencies
+          run: pnpm install --no-frozen-lockfile
 
-      # ── 3. Build web app ─────────────────────────────────────────────────────
-      - name: Build web app (Vite)
-        working-directory: artifacts/flipstudio
-        env:
-          PORT: "3000"
-          BASE_PATH: "/"
-          NODE_ENV: production
-        run: pnpm run build
+        - name: Build web app (Vite)
+          working-directory: artifacts/flipstudio
+          env:
+            BASE_PATH: "/"
+            NODE_ENV: production
+          run: pnpm run build
 
-      - name: Verify web build output
-        run: |
-          ls -lh artifacts/flipstudio/dist/public/
-          echo "✅ Web build OK"
+        - name: Verify web build output
+          run: |
+            ls -lh artifacts/flipstudio/dist/public/
+            echo "Web build OK"
 
-      # ── 4. Java 21 ───────────────────────────────────────────────────────────
-      - name: Setup Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
+        - name: Setup Java 21
+          uses: actions/setup-java@v4
+          with:
+            distribution: temurin
+            java-version: "21"
 
-      # ── 5. Android SDK 35 ────────────────────────────────────────────────────
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        - name: Setup Android SDK
+          uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 35 components
-        run: |
-          yes | sdkmanager --licenses 2>/dev/null || true
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-          echo "✅ Android SDK 35 installed"
+        - name: Install Android SDK 35 components
+          run: |
+            yes | sdkmanager --licenses 2>/dev/null || true
+            sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+            echo "Android SDK 35 installed"
 
-      # ── 6. Capacitor sync ────────────────────────────────────────────────────
-      - name: Update and Sync web assets into Android project
-        working-directory: artifacts/flipstudio
-        run: |
-          mkdir -p dist/public
-          mkdir -p android/app/src/main/assets
-          if [ ! -f android/app/src/main/assets/capacitor.plugins.json ]; then
-            echo "{}" > android/app/src/main/assets/capacitor.plugins.json
-          fi
-          if [ ! -f android/app/src/main/assets/capacitor.config.json ]; then
-            cp capacitor.config.json android/app/src/main/assets/capacitor.config.json || echo "{}" > android/app/src/main/assets/capacitor.config.json
-          fi
-          ./node_modules/.bin/cap update android
-          ./node_modules/.bin/cap sync android
+        - name: Sync Capacitor assets into Android project
+          working-directory: artifacts/flipstudio
+          run: |
+            mkdir -p android/app/src/main/assets
+            if [ ! -f android/app/src/main/assets/capacitor.plugins.json ]; then
+              echo "[]" > android/app/src/main/assets/capacitor.plugins.json
+            fi
+            cp capacitor.config.json android/app/src/main/assets/capacitor.config.json 2>/dev/null || true
+            ./node_modules/.bin/cap sync android --inline
 
-      # ── 7. Write local.properties ────────────────────────────────────────────
-      - name: Write local.properties
-        working-directory: artifacts/flipstudio/android
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        - name: Write local.properties
+          working-directory: artifacts/flipstudio/android
+          run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      # ── 8. Gradle cache ──────────────────────────────────────────────────────
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/flipstudio/android/**/*.gradle*', 'artifacts/flipstudio/android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
+        - name: Cache Gradle
+          uses: actions/cache@v4
+          with:
+            path: |
+              ~/.gradle/caches
+              ~/.gradle/wrapper
+            key: gradle-${{ runner.os }}-${{ hashFiles('artifacts/flipstudio/android/**/*.gradle*', 'artifacts/flipstudio/android/gradle/wrapper/gradle-wrapper.properties') }}
+            restore-keys: gradle-${{ runner.os }}-
 
-      # ── 9. Build APK ─────────────────────────────────────────────────────────
-      - name: Make gradlew executable
-        working-directory: artifacts/flipstudio/android
-        run: chmod +x gradlew
+        - name: Make gradlew executable
+          working-directory: artifacts/flipstudio/android
+          run: chmod +x gradlew
 
-      - name: Build Debug APK
-        working-directory: artifacts/flipstudio/android
-        env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: |
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m"
+        - name: Build Debug APK
+          working-directory: artifacts/flipstudio/android
+          env:
+            ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+            JAVA_HOME: ${{ env.JAVA_HOME }}
+          run: |
+            ./gradlew assembleDebug \
+              --no-daemon \
+              --stacktrace \
+              -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m"
 
-      # ── 10. Upload APK ───────────────────────────────────────────────────────
-      - name: Find and show APK
-        run: |
-          APK=$(find artifacts/flipstudio/android -name "*.apk" | head -1)
-          echo "APK path: $APK"
-          ls -lh "$APK"
+        - name: Find APK
+          run: |
+            APK=$(find artifacts/flipstudio/android -name "*.apk" | head -1)
+            echo "APK path: $APK"
+            ls -lh "$APK"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlipStudio-debug.apk
-          path: artifacts/flipstudio/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 30
+        - name: Upload APK artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: FlipStudio-debug.apk
+            path: artifacts/flipstudio/android/app/build/outputs/apk/debug/app-debug.apk
+            if-no-files-found: error
+            retention-days: 30
 
-      - name: Done
-        run: echo "✅ APK built successfully — download it from the Artifacts section above"
+        - name: Done
+          run: echo "APK built successfully"
+  
