@@ -3,12 +3,13 @@ import { useLocation } from "wouter";
 import {
   ArrowLeft, User, Bell, Shield, Palette, LogOut, Save, Check, Trash2, Info,
   Brush, Layers, Download, Keyboard, Moon, Vibrate, HelpCircle, ExternalLink,
-  ChevronRight, Star, Zap, Film, RefreshCw, AlertTriangle, Globe,
+  ChevronRight, Star, Zap, Film, RefreshCw, AlertTriangle, Globe, Mail, MessageCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/local-db";
 import { cn } from "@/lib/utils";
+import { Watermark } from "@/components/watermark";
 
 interface Prefs {
   autosave: boolean;
@@ -432,7 +433,7 @@ export default function SettingsPage() {
         </div>
 
         <p className="text-center text-[10px] text-white/15 py-2">
-          FlipStudio v2.0 · Made with ❤️ for animators
+          FlipStudio v2.0 · Made by Piyush 💜
         </p>
       </main>
     </div>
