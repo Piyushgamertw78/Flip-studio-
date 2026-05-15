@@ -1,11 +1,17 @@
-import { createClient } from "@supabase/supabase-js";
+// Supabase client — safe init that works even without env vars (offline mode)
+  import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-  export const isSupabaseConfigured = supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
+  export const SUPABASE_ENABLED = !!(
+    url && url.startsWith("https://") &&
+    anonKey && anonKey.length > 20
+  );
 
-  export const supabase = isSupabaseConfigured
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : createClient("https://placeholder.supabase.co", "placeholder-key-000000000000000000000000000");
+  export const supabase: SupabaseClient = SUPABASE_ENABLED
+    ? createClient(url!, anonKey!, {
+        auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
+      })
+    : (null as unknown as SupabaseClient);
   
