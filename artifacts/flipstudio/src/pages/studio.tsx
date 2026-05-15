@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ColorWheel } from "@/components/color-wheel";
 import { Watermark } from "@/components/watermark";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { db, type Project, type Frame, type Layer } from "@/lib/local-db";
 import {
   type Tool, type Point, type Stroke,
@@ -103,6 +104,7 @@ export default function Studio() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const [project, setProject]   = useState<Project | null>(null);
   const [frames, setFrames]     = useState<Frame[]>([]);
