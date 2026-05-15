@@ -132,13 +132,11 @@ export const db = {
       if (!frame) return;
       const layers = await db.layers.listByFrame(frameId);
       const now = new Date().toISOString();
-      const newFrameId = await db.frames.create({
-        ...frame, id: undefined as unknown as number,
-        order: frame.order + 1,
-        createdAt: now,
-      });
+      const { id: _fid, ...frameData } = frame;
+      const newFrameId = await db.frames.create({ ...frameData, order: frame.order + 1, createdAt: now });
       for (const l of layers) {
-        await db.layers.create({ ...l, id: undefined as unknown as number, frameId: newFrameId, createdAt: now });
+        const { id: _lid, ...layerData } = l;
+        await db.layers.create({ ...layerData, frameId: newFrameId, createdAt: now });
       }
       return newFrameId;
     },
