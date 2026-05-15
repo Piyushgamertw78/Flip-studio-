@@ -1,150 +1,113 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-  import { supabase, isSupabaseConfigured } from "./supabase";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { supabase, SUPABASE_ENABLED } from "@/lib/supabase";
 
-  export interface User {
-    id: string;
-    username: string;
-    email: string;
-    avatar: string;
-  }
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  avatar?: string;
+}
 
-  interface AuthContextType {
-    user: User | null;
-    isLoading: boolean;
-    login: (email: string, password: string) => Promise<void>;
-    signup: (username: string, email: string, password: string) => Promise<void>;
-    logout: () => void;
-  }
+interface AuthCtx {
+  user: User | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, username: string, password: string) => Promise<void>;
+  logout: () => void;
+}
 
-  const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthCtx | null>(null);
 
-  const STORAGE_KEY = "flipstudio_user";
+const LOCAL_KEY = "flipstudio_accounts";
+const SESSION_KEY = "flipstudio_session";
 
-  function makeAvatarUrl(seed: string) {
-    return `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(seed)}`;
-  }
+interface LocalAccount { id: string; username: string; email: string; password: string; avatar?: string; }
 
-  function localLogin(email: string, password: string): User | null {
-    const stored = localStorage.getItem("flipstudio_accounts");
-    const accounts: Record<string, { password: string; user: User }> = stored ? JSON.parse(stored) : {};
-    const acc = accounts[email.toLowerCase()];
-    if (!acc || acc.password !== password) return null;
-    return acc.user;
-  }
+function getLocalAccounts(): LocalAccount[] {
+  try { return JSON.parse(localStorage.getItem(LOCAL_KEY) ?? "[]") as LocalAccount[]; } catch { return []; }
+}
+function saveLocalAccounts(accounts: LocalAccount[]) { localStorage.setItem(LOCAL_KEY, JSON.stringify(accounts)); }
+function getLocalSession(): User | null {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as User | null; } catch { return null; }
+}
+function saveLocalSession(user: User | null) {
+  if (user) localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  else localStorage.removeItem(SESSION_KEY);
+}
 
-  function localSignup(username: string, email: string, password: string): User {
-    const stored = localStorage.getItem("flipstudio_accounts");
-    const accounts: Record<string, { password: string; user: User }> = stored ? JSON.parse(stored) : {};
-    const key = email.toLowerCase();
-    if (accounts[key]) throw new Error("Email already registered");
-    const user: User = {
-      id: crypto.randomUUID(),
-      username,
-      email,
-      avatar: makeAvatarUrl(username),
-    };
-    accounts[key] = { password, user };
-    localStorage.setItem("flipstudio_accounts", JSON.stringify(accounts));
-    return user;
-  }
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-      const checkUser = async () => {
-        if (isSupabaseConfigured) {
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-              const userData: User = {
-                id: session.user.id,
-                username: session.user.user_metadata["username"] as string || session.user.email?.split("@")[0] || "user",
-                email: session.user.email || "",
-                avatar: session.user.user_metadata["avatar"] as string || makeAvatarUrl(session.user.id),
-              };
-              setUser(userData);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-              setIsLoading(false);
-              return;
-            }
-          } catch {
-            // fall through to local storage
-          }
-        }
-        // Offline / demo mode
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          try { setUser(JSON.parse(stored) as User); } catch { localStorage.removeItem(STORAGE_KEY); }
+  useEffect(() => {
+    if (SUPABASE_ENABLED) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+        if (session?.user) {
+          const u = session.user;
+          setUser({ id: u.id, username: u.user_metadata?.['username'] as string || u.email?.split('@')[0] || "User", email: u.email ?? "", avatar: u.user_metadata?.['avatar_url'] as string });
+        } else {
+          setUser(null);
         }
         setIsLoading(false);
-      };
+      });
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session?.user) {
+          const u = data.session.user;
+          setUser({ id: u.id, username: u.user_metadata?.['username'] as string || u.email?.split('@')[0] || "User", email: u.email ?? "", avatar: u.user_metadata?.['avatar_url'] as string });
+        }
+        setIsLoading(false);
+      });
+      return () => { subscription.unsubscribe(); };
+    } else {
+      // Offline mode
+      const session = getLocalSession();
+      setUser(session);
+      setIsLoading(false);
+    }
+  }, []);
 
-      checkUser();
-
-      if (isSupabaseConfigured) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (session?.user) {
-            const userData: User = {
-              id: session.user.id,
-              username: session.user.user_metadata["username"] as string || session.user.email?.split("@")[0] || "user",
-              email: session.user.email || "",
-              avatar: session.user.user_metadata["avatar"] as string || makeAvatarUrl(session.user.id),
-            };
-            setUser(userData);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-          } else {
-            setUser(null);
-            localStorage.removeItem(STORAGE_KEY);
-          }
-        });
-        return () => subscription.unsubscribe();
-      }
-    }, []);
-
-    const login = async (email: string, password: string) => {
-      if (isSupabaseConfigured) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        return;
-      }
-      // Offline login
-      const u = localLogin(email, password);
-      if (!u) throw new Error("Invalid email or password");
+  const login = useCallback(async (email: string, password: string) => {
+    if (SUPABASE_ENABLED) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(error.message);
+    } else {
+      const accounts = getLocalAccounts();
+      const account = accounts.find(a => a.email === email && a.password === password);
+      if (!account) throw new Error("Invalid email or password");
+      const u: User = { id: account.id, username: account.username, email: account.email, avatar: account.avatar };
+      saveLocalSession(u);
       setUser(u);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
-    };
+    }
+  }, []);
 
-    const signup = async (username: string, email: string, password: string) => {
-      if (isSupabaseConfigured) {
-        const { error } = await supabase.auth.signUp({
-          email, password,
-          options: { data: { username, avatar: makeAvatarUrl(username) } },
-        });
-        if (error) throw error;
-        return;
-      }
-      // Offline signup
-      const u = localSignup(username, email, password);
+  const register = useCallback(async (email: string, username: string, password: string) => {
+    if (SUPABASE_ENABLED) {
+      const { error } = await supabase.auth.signUp({ email, password, options: { data: { username, display_name: username } } });
+      if (error) throw new Error(error.message);
+    } else {
+      const accounts = getLocalAccounts();
+      if (accounts.find(a => a.email === email)) throw new Error("An account with this email already exists");
+      if (accounts.find(a => a.username === username)) throw new Error("Username already taken");
+      const newAccount: LocalAccount = { id: crypto.randomUUID(), username, email, password };
+      accounts.push(newAccount);
+      saveLocalAccounts(accounts);
+      const u: User = { id: newAccount.id, username, email };
+      saveLocalSession(u);
       setUser(u);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
-    };
+    }
+  }, []);
 
-    const logout = async () => {
-      if (isSupabaseConfigured) {
-        try { await supabase.auth.signOut(); } catch { /* ignore */ }
-      }
-      setUser(null);
-      localStorage.removeItem(STORAGE_KEY);
-    };
+  const logout = useCallback(() => {
+    if (SUPABASE_ENABLED) { void supabase.auth.signOut(); }
+    saveLocalSession(null);
+    setUser(null);
+  }, []);
 
-    return <AuthContext.Provider value={{ user, isLoading, login, signup, logout }}>{children}</AuthContext.Provider>;
-  }
+  return <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>{children}</AuthContext.Provider>;
+}
 
-  export function useAuth() {
-    const ctx = useContext(AuthContext);
-    if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-    return ctx;
-  }
-  
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+}
