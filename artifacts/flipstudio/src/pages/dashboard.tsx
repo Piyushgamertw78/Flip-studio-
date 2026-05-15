@@ -157,6 +157,7 @@ function ProjectCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed    = useRef(false);
+  const touchHandled   = useRef(false);
   const starred = (project.tags ?? []).includes("⭐");
 
   const startLong = () => {
@@ -170,7 +171,8 @@ function ProjectCard({
   const endLong = () => {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
     if (longPressed.current) return;
-    if (selectionMode) { onSelect(); return; }
+    if (selectionMode) { touchHandled.current = true; onSelect(); return; }
+    touchHandled.current = true;
     onOpen();
   };
   const cancelLong = () => {
@@ -186,7 +188,7 @@ function ProjectCard({
           : "glass-card border-transparent hover:border-violet-500/25"
       )}
       onTouchStart={startLong} onTouchEnd={endLong} onTouchMove={cancelLong}
-      onClick={() => { if (selectionMode) { onSelect(); return; } if (!menuOpen) onOpen(); }}>
+      onClick={() => { if (touchHandled.current) { touchHandled.current = false; return; } if (selectionMode) { onSelect(); return; } if (!menuOpen) onOpen(); }}>
 
       {selectionMode && (
         <div className={cn(
