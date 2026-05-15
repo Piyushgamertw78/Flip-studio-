@@ -30,13 +30,17 @@ function setLocalData<T>(key: string, data: T): void {
 
 async function handleLocalRequest(url: string, init: RequestInit): Promise<any> {
   const method = (init.method || "GET").toUpperCase();
-  const path = url.split("?")[0];
-  const params = new URLSearchParams(url.split("?")[1] || "");
+  // Remove query params for path matching
+  const urlObj = new URL(url, "http://localhost");
+  const path = urlObj.pathname;
+  const params = urlObj.searchParams;
 
   // Helper to get current user
   const userStr = localStorage.getItem("flipstudio_user");
   const user = userStr ? JSON.parse(userStr) : null;
   const userId = user?.id || "anonymous";
+
+  console.log(`[Local-First] ${method} ${path}`);
 
   // Dashboard Stats
   if (path === "/api/stats/dashboard" && method === "GET") {
@@ -50,8 +54,8 @@ async function handleLocalRequest(url: string, init: RequestInit): Promise<any> 
     };
   }
 
-  // Projects
-  if (path === "/api/projects") {
+  // Projects List / Create
+  if (path === "/api/projects" || path === "/api/projects/") {
     const projects = getLocalData<any[]>("projects_" + userId, []);
     if (method === "GET") {
       return projects;
@@ -84,20 +88,24 @@ async function handleLocalRequest(url: string, init: RequestInit): Promise<any> 
     }
   }
 
-  if (path.startsWith("/api/projects/")) {
-    const projectId = parseInt(path.split("/")[3]);
+  // Specific Project Details / Update / Delete
+  const projectMatch = path.match(/^\/api\/projects\/(\d+)$/);
+  if (projectMatch) {
+    const projectId = parseInt(projectMatch[1]);
     const projects = getLocalData<any[]>("projects_" + userId, []);
-    const projectIndex = projects.findIndex(p => p.id === projectId);
+    const project = projects.find(p => p.id === projectId);
 
     if (method === "GET") {
-      return projects[projectIndex];
+      if (!project) throw new Error("Project not found");
+      return project;
     }
     if (method === "PATCH") {
       const body = JSON.parse(init.body as string);
-      if (projectIndex > -1) {
-        projects[projectIndex] = { ...projects[projectIndex], ...body, updatedAt: new Date().toISOString() };
+      const idx = projects.findIndex(p => p.id === projectId);
+      if (idx > -1) {
+        projects[idx] = { ...projects[idx], ...body, updatedAt: new Date().toISOString() };
         setLocalData("projects_" + userId, projects);
-        return projects[projectIndex];
+        return projects[idx];
       }
     }
     if (method === "DELETE") {
@@ -106,33 +114,42 @@ async function handleLocalRequest(url: string, init: RequestInit): Promise<any> 
       localStorage.removeItem(STORAGE_KEY_PREFIX + `frames_${projectId}`);
       return { success: true };
     }
-    
-    // Duplicate Project
-    if (path.endsWith("/duplicate") && method === "POST") {
-      const source = projects[projectIndex];
-      if (source) {
-        const newProject = {
-          ...source,
-          id: Date.now(),
-          name: `${source.name} (Copy)`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setLocalData("projects_" + userId, [newProject, ...projects]);
-        
-        // Copy frames
-        const sourceFrames = getLocalData<any[]>(`frames_${projectId}`, []);
-        const newFrames = sourceFrames.map(f => ({ ...f, id: Date.now() + Math.random(), projectId: newProject.id }));
-        setLocalData(`frames_${newProject.id}`, newFrames);
-        
-        return newProject;
-      }
+  }
+
+  // Duplicate Project
+  const duplicateMatch = path.match(/^\/api\/projects\/(\d+)\/duplicate$/);
+  if (duplicateMatch && method === "POST") {
+    const projectId = parseInt(duplicateMatch[1]);
+    const projects = getLocalData<any[]>("projects_" + userId, []);
+    const source = projects.find(p => p.id === projectId);
+    if (source) {
+      const newId = Date.now();
+      const newProject = {
+        ...source,
+        id: newId,
+        name: `${source.name} (Copy)`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setLocalData("projects_" + userId, [newProject, ...projects]);
+      
+      // Copy frames
+      const sourceFrames = getLocalData<any[]>(`frames_${projectId}`, []);
+      const newFrames = sourceFrames.map(f => ({ 
+        ...f, 
+        id: Date.now() + Math.random(), 
+        projectId: newId 
+      }));
+      setLocalData(`frames_${newId}`, newFrames);
+      
+      return newProject;
     }
   }
 
-  // Frames
-  if (path.startsWith("/api/projects/") && path.includes("/frames")) {
-    const projectId = parseInt(path.split("/")[3]);
+  // Project Frames
+  const framesMatch = path.match(/^\/api\/projects\/(\d+)\/frames$/);
+  if (framesMatch) {
+    const projectId = parseInt(framesMatch[1]);
     const frames = getLocalData<any[]>(`frames_${projectId}`, []);
 
     if (method === "GET") {
@@ -162,13 +179,12 @@ async function handleLocalRequest(url: string, init: RequestInit): Promise<any> 
     }
   }
 
-  if (path.startsWith("/api/frames/")) {
-    const frameId = parseInt(path.split("/")[3]);
-    // We need to find which project this frame belongs to. 
-    // For simplicity in this mock, we'll iterate through all frame keys or just use a global frame store.
-    // Let's use a simpler approach: the UI usually knows the projectId.
-    // But the API client doesn't pass it here. Let's look up in all flipstudio_db_frames_* keys.
+  // Specific Frame Operations
+  const frameOpMatch = path.match(/^\/api\/frames\/(\d+)$/);
+  if (frameOpMatch) {
+    const frameId = parseInt(frameOpMatch[1]);
     
+    // Find project containing this frame
     let targetProjectId = null;
     let frames: any[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -199,13 +215,28 @@ async function handleLocalRequest(url: string, init: RequestInit): Promise<any> 
     }
   }
 
-  // Layers (Mocking as empty for now as it's less critical for basic functionality)
-  if (path.includes("/layers")) {
-    if (method === "GET") return [];
-    if (method === "POST") return { id: Date.now(), name: "Layer 1" };
+  // Project Layers
+  const layersMatch = path.match(/^\/api\/projects\/(\d+)\/layers$/);
+  if (layersMatch) {
+    const projectId = parseInt(layersMatch[1]);
+    const layers = getLocalData<any[]>(`layers_${projectId}`, [
+      { id: Date.now(), projectId, name: "Layer 1", layerIndex: 0, visible: true, locked: false }
+    ]);
+    if (method === "GET") return layers;
+    if (method === "POST") {
+      const body = JSON.parse(init.body as string);
+      const newLayer = { ...body, id: Date.now(), projectId };
+      const updated = [...layers, newLayer];
+      setLocalData(`layers_${projectId}`, updated);
+      return newLayer;
+    }
   }
 
-  throw new Error(`Mock API: Path ${path} with method ${method} not implemented`);
+  // Health check
+  if (path === "/api/healthz") return { status: "ok" };
+
+  console.warn(`[Local-First] Unhandled path: ${method} ${path}`);
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -256,12 +287,11 @@ export async function customFetch<T = unknown>(
   const url = typeof input === "string" ? input : (input as any).url || input.toString();
   
   // ALWAYS use local-first if it's an /api call
-  if (url.startsWith("/api")) {
-    console.log("Intercepting API call for Local-First:", url);
+  if (url.includes("/api/")) {
     return handleLocalRequest(url, options) as Promise<T>;
   }
 
-  // Fallback for non-api calls (shouldn't happen in this app's data flow)
+  // Fallback
   const response = await fetch(input, options);
   if (!response.ok) {
     throw new Error("Fetch failed");
