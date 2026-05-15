@@ -11,6 +11,7 @@ import {
   Scissors, Clipboard,
   Maximize2, Target, ChevronRight, ChevronLeft, Film, Edit3,
   MoreHorizontal, Crosshair, Sliders, ArrowRight,
+  Mic, MicOff, ImagePlus, Music2, StopCircle, Volume2, VolumeX,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -153,6 +154,16 @@ export default function Studio() {
   const [textInput, setTextInput]   = useState<{ x: number; y: number; val: string } | null>(null);
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
+  // ── Reference image ──────────────────────────────────────────────────────────
+  const [refImage, setRefImage]         = useState<string | null>(null);
+  const [refOpacity, setRefOpacity]     = useState(50);
+  const [showRefImage, setShowRefImage] = useState(true);
+  const [showRefPanel, setShowRefPanel] = useState(false);
+  // ── Audio track ──────────────────────────────────────────────────────────────
+  const [isRecording, setIsRecording]   = useState(false);
+  const [audioURL, setAudioURL]         = useState<string | null>(null);
+  const [showAudioBar, setShowAudioBar] = useState(false);
+
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const isDrawing  = useRef(false);
@@ -168,6 +179,10 @@ export default function Studio() {
   const lastTouchCenter = useRef<{ x: number; y: number } | null>(null);
   const touchPanStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const swipeStartX = useRef<number | null>(null);
+  const refInputRef       = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
+  const audioChunksRef    = useRef<Blob[]>([]);
+  const audioElemRef      = useRef<HTMLAudioElement | null>(null);
 
   const CW = project?.width ?? 1920;
   const CH = project?.height ?? 1080;
@@ -180,6 +195,7 @@ export default function Studio() {
       setProject(proj);
       setFrames(fs);
       setProjectNameVal(proj.name);
+      if (proj.audioTrack) setAudioURL(proj.audioTrack);
       if (fs.length > 0) {
         const ls = await db.layers.listByFrame(fs[0]!.id);
         setLayers(ls);
@@ -483,6 +499,25 @@ export default function Studio() {
   const addMultipleFrames = useCallback(async (count: number) => {
     for (let i = 0; i < count; i++) await addFrame();
   }, [addFrame]);
+
+  // Copy current frame artwork forward to next frame
+  const copyArtworkToNextFrame = useCallback(async () => {
+    if (currentFrameIdx >= frames.length - 1) { toast({ title: "No next frame — add one first" }); return; }
+    await saveCurrentLayerData();
+    const nextFrame = frames[currentFrameIdx + 1];
+    if (!nextFrame) return;
+    const nextLayers = await db.layers.listByFrame(nextFrame.id);
+    let copied = 0;
+    for (const nextLayer of nextLayers) {
+      const match = layers.find(l => l.name === nextLayer.name && l.order === nextLayer.order);
+      if (match) {
+        const strokes = layerStrokes.current.get(match.id) ?? [];
+        await db.layers.update(nextLayer.id, { canvasData: JSON.stringify({ strokes }) });
+        copied++;
+      }
+    }
+    toast({ title: copied > 0 ? `Artwork copied to frame ${currentFrameIdx + 2}` : "No matching layers found" });
+  }, [currentFrameIdx, frames, layers, saveCurrentLayerData, toast]);
 
   // ─── Layer management ────────────────────────────────────────────────────────
   const addLayer = useCallback(async () => {
@@ -1012,6 +1047,57 @@ export default function Studio() {
     setShowRenameProject(false);
   }, [projectId, projectNameVal]);
 
+  // ─── Reference image ─────────────────────────────────────────────────────────
+  const loadRefImage = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setRefImage(reader.result as string);
+      setShowRefImage(true);
+      setShowRefPanel(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }, []);
+
+  // ─── Audio recording ─────────────────────────────────────────────────────────
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = ev => { if (ev.data.size > 0) audioChunksRef.current.push(ev.data); };
+      recorder.onstop = async () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        setAudioURL(url);
+        stream.getTracks().forEach(t => t.stop());
+        const reader2 = new FileReader();
+        reader2.onload = async () => {
+          await db.projects.update(projectId, { audioTrack: reader2.result as string });
+        };
+        reader2.readAsDataURL(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      // Mic permission denied or unavailable
+    }
+  }, [projectId]);
+
+  const stopRecording = useCallback(() => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  }, []);
+
+  const clearAudio = useCallback(async () => {
+    if (audioElemRef.current) { audioElemRef.current.pause(); audioElemRef.current.src = ""; }
+    setAudioURL(null);
+    await db.projects.update(projectId, { audioTrack: undefined });
+  }, [projectId]);
+
   // ─── Render loading ──────────────────────────────────────────────────────────
   if (loading) return (
     <div className="h-screen w-screen flex items-center justify-center bg-[#080811]">
@@ -1024,7 +1110,8 @@ export default function Studio() {
   );
   if (!project) return null;
 
-  const canvasPx = { w: `min(calc(100vw - ${showLayersPanel ? 240 : 0}px - 96px), calc((100vh - 200px) * ${CW} / ${CH}))` };
+  // Give canvas maximum space — subtract only actual UI widths (toolbar=48, layers=224)
+  const canvasPx = { w: `min(calc(100vw - ${showLayersPanel ? 272 : 52}px), calc((100vh - 210px) * ${CW} / ${CH}))` };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none"
@@ -1092,13 +1179,19 @@ export default function Studio() {
 
         <div className="w-px h-5 bg-white/[0.07] mx-1"/>
 
-        <button onClick={exportCurrentFrame} title="Export current frame"
+        <button onClick={exportCurrentFrame} title="Save current frame as PNG"
           className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
           <Film className="w-4 h-4"/>
         </button>
+        {/* Quick PNG export for drawings */}
+        <button onClick={exportCurrentFrame} title="Export as PNG (drawing)"
+          className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs font-medium border border-white/10 text-white/40 hover:text-white hover:border-white/20 transition-colors">
+          PNG
+        </button>
+        {/* Full export — GIF/Video/PNG-seq */}
         <button onClick={() => setLocation(`/projects/${projectId}/export`)}
-          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors">
-          <Download className="w-3.5 h-3.5"/> Export
+          className="flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95">
+          <Download className="w-3.5 h-3.5"/> Export GIF
         </button>
         <button onClick={() => setShowShortcuts(s => !s)} title="Shortcuts"
           className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors ml-1">
@@ -1219,6 +1312,28 @@ export default function Studio() {
               <Layers className="w-4 h-4"/>
             </button>
           </TooltipTrigger><TooltipContent side="right">Layers Panel (swipe)</TooltipContent></Tooltip>
+
+          <div className="w-7 h-px bg-white/[0.06] my-1"/>
+
+          {/* Reference image */}
+          <Tooltip><TooltipTrigger asChild>
+            <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all relative",
+              showRefPanel ? "bg-fuchsia-600/30 text-fuchsia-300" : refImage ? "text-fuchsia-400/60 hover:text-fuchsia-300 hover:bg-white/[0.06]" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
+              onClick={() => refImage ? setShowRefPanel(p => !p) : refInputRef.current?.click()}>
+              <ImagePlus className="w-4 h-4"/>
+              {refImage && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-fuchsia-500"/>}
+            </button>
+          </TooltipTrigger><TooltipContent side="right">Reference Image</TooltipContent></Tooltip>
+
+          {/* Audio track */}
+          <Tooltip><TooltipTrigger asChild>
+            <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all relative",
+              isRecording ? "bg-red-600/40 text-red-300 animate-pulse" : audioURL ? "text-fuchsia-400/60 hover:text-fuchsia-300 hover:bg-white/[0.06]" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
+              onClick={() => isRecording ? stopRecording() : setShowAudioBar(p => !p)}>
+              <Music2 className="w-4 h-4"/>
+              {audioURL && !isRecording && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-fuchsia-500"/>}
+            </button>
+          </TooltipTrigger><TooltipContent side="right">{isRecording ? "Stop Recording" : "Audio Track"}</TooltipContent></Tooltip>
         </div>
 
         {/* ── Color Panel ── */}
@@ -1358,6 +1473,97 @@ export default function Studio() {
           </div>
         )}
 
+        {/* ── Reference Image Panel ── */}
+        {showRefPanel && (
+          <div className="absolute left-14 top-2 z-40 bg-[#13131f] border border-white/10 rounded-2xl shadow-2xl w-60 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Reference Image</span>
+              <button className="text-white/20 hover:text-white" onClick={() => setShowRefPanel(false)}>
+                <X className="w-4 h-4"/>
+              </button>
+            </div>
+            {refImage ? (
+              <>
+                <div className="relative rounded-xl overflow-hidden border border-white/10 mb-3" style={{ height: 100 }}>
+                  <img src={refImage} alt="ref" className="w-full h-full object-contain bg-black/30"/>
+                  <button
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white/60 hover:text-white flex items-center justify-center"
+                    onClick={() => { setRefImage(null); setShowRefPanel(false); }}>
+                    <X className="w-3 h-3"/>
+                  </button>
+                </div>
+                <div className="mb-3">
+                  <div className="flex justify-between text-[11px] text-white/35 mb-1.5">
+                    <span>Opacity</span><span>{refOpacity}%</span>
+                  </div>
+                  <Slider value={[refOpacity]} min={5} max={95} step={5}
+                    onValueChange={([v]) => setRefOpacity(v!)}
+                    className="[&_[role=slider]]:bg-fuchsia-500 [&_[role=slider]]:border-0"/>
+                </div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[11px] text-white/35">Show overlay</span>
+                  <button className={cn("w-10 h-5 rounded-full transition-all relative", showRefImage ? "bg-fuchsia-600" : "bg-white/10")}
+                    onClick={() => setShowRefImage(p => !p)}>
+                    <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", showRefImage ? "left-5" : "left-0.5")}/>
+                  </button>
+                </div>
+                <button onClick={() => refInputRef.current?.click()}
+                  className="w-full py-1.5 text-xs text-white/50 hover:text-white bg-white/5 hover:bg-white/8 border border-white/10 rounded-lg transition-colors">
+                  Change Image
+                </button>
+              </>
+            ) : (
+              <button onClick={() => refInputRef.current?.click()}
+                className="w-full py-6 flex flex-col items-center gap-2 text-white/30 hover:text-white/60 border-2 border-dashed border-white/10 hover:border-fuchsia-500/40 rounded-xl transition-all">
+                <ImagePlus className="w-6 h-6"/>
+                <span className="text-xs">Import photo to trace over</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Audio Bar ── */}
+        {showAudioBar && (
+          <div className="absolute left-14 top-2 z-40 bg-[#13131f] border border-white/10 rounded-2xl shadow-2xl w-60 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Audio Track</span>
+              <button className="text-white/20 hover:text-white" onClick={() => setShowAudioBar(false)}>
+                <X className="w-4 h-4"/>
+              </button>
+            </div>
+            {audioURL ? (
+              <>
+                <div className="flex items-center gap-2 p-3 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-xl mb-3">
+                  <Music2 className="w-4 h-4 text-fuchsia-400 shrink-0"/>
+                  <span className="text-xs text-white/60 flex-1">Audio recorded</span>
+                </div>
+                <audio ref={audioElemRef} src={audioURL} className="w-full mb-3" controls
+                  style={{ filter: "invert(1) hue-rotate(200deg) saturate(0.6)", height: 32 }}/>
+                <div className="flex gap-2">
+                  <button onClick={() => isRecording ? stopRecording() : void startRecording()}
+                    className={cn("flex-1 py-2 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5",
+                      isRecording ? "bg-red-600/30 text-red-300 hover:bg-red-600/40" : "bg-white/5 text-white/50 hover:bg-white/8 hover:text-white border border-white/10")}>
+                    {isRecording ? <><StopCircle className="w-3 h-3"/> Stop</> : <><Mic className="w-3 h-3"/> Re-record</>}
+                  </button>
+                  <button onClick={() => void clearAudio()}
+                    className="px-3 py-2 text-xs text-red-400/60 hover:text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 rounded-lg transition-colors">
+                    <Trash2 className="w-3 h-3"/>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button onClick={() => isRecording ? stopRecording() : void startRecording()}
+                className={cn("w-full py-5 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed transition-all",
+                  isRecording
+                    ? "border-red-500/60 bg-red-500/10 text-red-300 animate-pulse"
+                    : "border-white/10 hover:border-fuchsia-500/40 text-white/30 hover:text-white/60")}>
+                {isRecording ? <MicOff className="w-6 h-6"/> : <Mic className="w-6 h-6"/>}
+                <span className="text-xs">{isRecording ? "Recording… tap to stop" : "Record audio track"}</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── Shortcuts Modal ── */}
         {showShortcuts && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowShortcuts(false)}>
@@ -1386,26 +1592,35 @@ export default function Studio() {
         )}
 
         {/* ── Canvas Area ── */}
-        <div className="flex-1 relative overflow-hidden bg-[#0d0d1a] flex items-center justify-center"
+        <div className="flex-1 relative overflow-hidden bg-[#030308] flex items-center justify-center"
           onClick={() => { setShowColorPanel(false); }}
           onWheel={handleWheel}>
-          {/* Transparency checker bg */}
-          <div className="absolute inset-0 opacity-25" style={{
-            backgroundImage: "linear-gradient(45deg,#1a1a2e 25%,transparent 25%),linear-gradient(-45deg,#1a1a2e 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1a1a2e 75%),linear-gradient(-45deg,transparent 75%,#1a1a2e 75%)",
-            backgroundSize: "20px 20px",
-            backgroundPosition: "0 0,0 10px,10px -10px,-10px 0px",
+          {/* Fine grid bg to visually distinguish from canvas */}
+          <div className="absolute inset-0" style={{
+            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
           }}/>
 
           <div style={{
             transform: `scale(${zoom}) translate(${panOffset.x / zoom}px, ${panOffset.y / zoom}px)`,
             transformOrigin: "center",
             transition: "none",
-          }} className="relative shadow-2xl shadow-black/80">
+          }} className="relative shadow-[0_0_0_1px_rgba(255,255,255,0.12),0_12px_48px_rgba(0,0,0,0.95)]">
             {/* Main canvas */}
             <canvas ref={canvasRef} width={CW} height={CH}
               className="block"
               style={{ width: canvasPx.w, height: "auto" }}
             />
+            {/* Reference image — semi-transparent overlay for tracing */}
+            {refImage && showRefImage && (
+              <img
+                src={refImage}
+                alt="reference"
+                draggable={false}
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+                style={{ opacity: refOpacity / 100 }}
+              />
+            )}
             {/* Overlay canvas (shape preview + cursor) */}
             <canvas ref={overlayRef} width={CW} height={CH}
               className="absolute inset-0 pointer-events-none"
@@ -1464,12 +1679,24 @@ export default function Studio() {
           </div>
 
           {/* Layer indicator */}
-          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-[#0e0e1a]/80 backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-white/[0.05]">
-            <div className="w-2 h-2 rounded-full bg-violet-500"/>
-            <span className="text-[11px] text-white/50 font-medium">{currentLayer?.name ?? "No Layer"}</span>
+          <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 backdrop-blur-md rounded-xl px-2.5 py-1.5 border border-white/[0.08]">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: currentLayer?.locked ? "#f59e0b" : "#8b5cf6" }}/>
+            <span className="text-[11px] text-white/70 font-medium">{currentLayer?.name ?? "No Layer"}</span>
             {currentLayer?.locked && <Lock className="w-2.5 h-2.5 text-amber-400"/>}
             {selectionRect && <Scissors className="w-2.5 h-2.5 text-blue-400"/>}
           </div>
+
+          {/* Canvas draw hint — shows briefly when canvas is totally empty */}
+          {layers.every(l => (layerStrokes.current.get(l.id) ?? []).length === 0) && !isPlaying && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="flex flex-col items-center gap-2 opacity-30">
+                <div className="w-14 h-14 rounded-2xl border-2 border-dashed border-white/40 flex items-center justify-center">
+                  <span className="text-2xl">✏️</span>
+                </div>
+                <span className="text-xs text-white font-medium">Start drawing here</span>
+              </div>
+            </div>
+          )}
 
           {/* Onion skin controls (floating) */}
           <div className="absolute top-2 right-3 flex items-center gap-1 bg-[#0e0e1a]/80 backdrop-blur-sm rounded-lg px-2 py-1.5 border border-white/[0.05]">
@@ -1676,28 +1903,31 @@ export default function Studio() {
 
         {/* Extra timeline tools */}
         {showTimelineTools && (
-          <div className="h-9 flex items-center px-3 gap-2 border-b border-white/[0.04] bg-[#0a0a15]">
-            <span className="text-[10px] text-white/25">Add</span>
+          <div className="flex flex-wrap items-center px-3 py-1.5 gap-1.5 border-b border-white/[0.04] bg-[#0a0a15]">
+            <span className="text-[10px] text-white/25 shrink-0">Add frames:</span>
             {[3,5,10].map(n => (
-              <button key={n} className="text-[10px] text-white/35 hover:text-white px-2 py-1 rounded border border-white/[0.07] hover:border-white/20 transition-colors"
+              <button key={n} className="text-[10px] text-white/35 hover:text-white px-2 py-1 rounded-lg border border-white/[0.07] hover:border-white/20 transition-colors"
                 onClick={() => void addMultipleFrames(n)}>
-                +{n} frames
+                +{n}
               </button>
             ))}
-            <div className="w-px h-5 bg-white/[0.07]"/>
-            <button className="text-[10px] text-white/35 hover:text-white px-2 py-1 rounded border border-white/[0.07] hover:border-white/20 transition-colors"
+            <div className="w-px h-5 bg-white/[0.07] mx-1"/>
+            {/* Copy artwork to next frame — key animation feature */}
+            <button
+              className="text-[10px] text-fuchsia-400/70 hover:text-fuchsia-300 px-2 py-1 rounded-lg border border-fuchsia-500/20 hover:border-fuchsia-500/50 transition-colors flex items-center gap-1"
+              onClick={() => void copyArtworkToNextFrame()}
+              title="Copies current frame's drawing to the next frame">
+              Copy → Next
+            </button>
+            <button className="text-[10px] text-white/35 hover:text-violet-400 px-2 py-1 rounded-lg border border-white/[0.07] hover:border-violet-500/30 transition-colors"
+              onClick={() => { void invert(); }}>
+              Invert
+            </button>
+            <button className="text-[10px] text-white/30 hover:text-red-400 px-2 py-1 rounded-lg border border-white/[0.07] hover:border-red-500/30 transition-colors"
               onClick={() => { if (confirm("Delete all frames except current?")) {
-                frames.forEach((f, i) => { if (i !== currentFrameIdx) void deleteFrame(i); });
+                frames.forEach((_, i) => { if (i !== currentFrameIdx) void deleteFrame(i); });
               }}}>
               Keep only current
-            </button>
-            <button className="text-[10px] text-white/35 hover:text-violet-400 px-2 py-1 rounded border border-white/[0.07] hover:border-violet-500/30 transition-colors"
-              onClick={() => { void invert(); }}>
-              Invert layer
-            </button>
-            <button className="text-[10px] text-white/35 hover:text-amber-400 px-2 py-1 rounded border border-white/[0.07] hover:border-amber-500/30 transition-colors"
-              onClick={() => { void adjustBrightness(30); }}>
-              Brighten
             </button>
           </div>
         )}
@@ -1744,6 +1974,17 @@ export default function Studio() {
           </button>
         </div>
       </div>
+
+      {/* Hidden file input for reference image import */}
+      <input
+        ref={refInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={loadRefImage}
+      />
+      {/* Audio element for playback */}
+      <audio ref={audioElemRef} src={audioURL ?? undefined} preload="auto"/>
 
       <Watermark/>
     </div>

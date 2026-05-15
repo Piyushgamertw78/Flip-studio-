@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Eye, EyeOff, Film, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -37,18 +37,18 @@ export default function LoginPage() {
   const continueAsGuest = async () => {
     setLoading(true);
     try {
-      await register("guest@flipstudio.local", "Guest_" + Math.random().toString(36).slice(2,6).toUpperCase(), "guest_" + Math.random().toString(36).slice(2,10));
+      // Always create a unique guest account in local mode — no Supabase needed
+      const guestId   = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const guestEmail = `guest_${Date.now()}@flipstudio.local`;
+      const guestPw    = `guestpw_${Date.now()}`;
+      await register(guestEmail, `Guest_${guestId}`, guestPw);
       setLocation("/");
-    } catch {
-      try {
-        await login("guest@flipstudio.local", "guest");
-        setLocation("/");
-      } catch {
-        const guestEmail = "guest_" + Date.now() + "@flipstudio.local";
-        const guestPw = "guestpw_" + Date.now();
-        await register(guestEmail, "Guest" + Date.now().toString().slice(-4), guestPw);
-        setLocation("/");
-      }
+    } catch (err) {
+      toast({
+        title: "Could not create guest session",
+        description: err instanceof Error ? err.message : "Please try again",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -86,7 +86,7 @@ export default function LoginPage() {
           <p className="text-sm text-white/40 mt-1">Professional Animation Studio</p>
           {!SUPABASE_ENABLED && (
             <span className="inline-flex items-center gap-1 text-[10px] text-amber-400/70 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5 mt-2">
-              Offline Mode
+              Offline Mode — data saved locally
             </span>
           )}
         </div>
@@ -144,7 +144,8 @@ export default function LoginPage() {
           </div>
 
           <button onClick={continueAsGuest} disabled={loading}
-            className="w-full mt-3 py-3 text-sm font-medium text-white/50 hover:text-white/80 bg-white/3 hover:bg-white/6 border border-white/8 hover:border-white/15 rounded-xl transition-all">
+            className="w-full mt-3 py-3 text-sm font-medium text-white/50 hover:text-white/80 bg-white/3 hover:bg-white/6 border border-white/8 hover:border-white/15 rounded-xl transition-all flex items-center justify-center gap-2">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : null}
             Continue as Guest
           </button>
         </div>

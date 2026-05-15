@@ -43,6 +43,15 @@ jobs:
           NODE_ENV: production
         run: pnpm run build
 
+      - name: Verify web build output
+        run: |
+          if [ ! -d artifacts/flipstudio/dist/public ]; then
+            echo "ERROR: Web build output not found at artifacts/flipstudio/dist/public"
+            exit 1
+          fi
+          echo "Web build OK — files:"
+          ls -lh artifacts/flipstudio/dist/public/
+
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
@@ -57,89 +66,53 @@ jobs:
           yes | sdkmanager --licenses 2>/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Generate release keystore
+      - name: Set up release keystore
         run: |
-          keytool -genkeypair \
-            -v \
-            -storetype PKCS12 \
-            -keystore flipstudio-release.keystore \
-            -alias flipstudio \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass flipstudio2024 \
-            -keypass flipstudio2024 \
-            -dname "CN=FlipStudio, OU=FlipStudio, O=FlipStudio, L=India, ST=India, C=IN"
-          cp flipstudio-release.keystore artifacts/flipstudio/android/app/
-
-      - name: Add signing config to build.gradle
-        working-directory: artifacts/flipstudio/android/app
-        run: |
-          python3 << 'PYEOF'
-          import re
-
-          with open('build.gradle', 'r') as f:
-              content = f.read()
-
-          signing_config = '''
-              signingConfigs {
-                  release {
-                      storeFile file('flipstudio-release.keystore')
-                      storePassword 'flipstudio2024'
-                      keyAlias 'flipstudio'
-                      keyPassword 'flipstudio2024'
-                  }
-              }'''
-
-          # Insert signingConfigs before buildTypes
-          content = content.replace(
-              '    buildTypes {',
-              signing_config + '\n    buildTypes {'
-          )
-
-          # Update release buildType to use signingConfig
-          content = content.replace(
-              '''    buildTypes {
-              release {
-                  minifyEnabled false
-                  proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-              }''',
-              '''    buildTypes {
-              release {
-                  minifyEnabled false
-                  proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-                  signingConfig signingConfigs.release
-              }'''
-          )
-
-          with open('build.gradle', 'w') as f:
-              f.write(content)
-
-          print("build.gradle updated with signing config")
-          PYEOF
+          if [ -n "${{ secrets.FLIPSTUDIO_KEYSTORE_BASE64 }}" ]; then
+            # Use the persistent keystore stored as a GitHub Secret (ensures upgrade compatibility)
+            echo "Using persistent keystore from GitHub Secret"
+            echo "${{ secrets.FLIPSTUDIO_KEYSTORE_BASE64 }}" | base64 -d > flipstudio-release.keystore
+          else
+            # Fallback: generate a fresh keystore (APKs will not be upgrade-compatible)
+            echo "WARNING: FLIPSTUDIO_KEYSTORE_BASE64 secret not set — generating a fresh keystore"
+            echo "To fix this, add the FLIPSTUDIO_KEYSTORE_BASE64 secret to the repository settings"
+            keytool -genkeypair \
+              -v \
+              -storetype PKCS12 \
+              -keystore flipstudio-release.keystore \
+              -alias flipstudio \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass flipstudio2024 \
+              -keypass flipstudio2024 \
+              -dname "CN=FlipStudio, OU=FlipStudio, O=FlipStudio, L=India, ST=India, C=IN"
+          fi
+          # Place the keystore where build.gradle expects it
+          cp flipstudio-release.keystore artifacts/flipstudio/android/app/flipstudio-release.keystore
+          echo "Keystore ready: $(wc -c < artifacts/flipstudio/android/app/flipstudio-release.keystore) bytes"
 
       - name: Write local.properties
         working-directory: artifacts/flipstudio/android
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
-      - name: Sync Capacitor assets
+      - name: Sync Capacitor web assets
         working-directory: artifacts/flipstudio
         run: |
           mkdir -p android/app/src/main/assets
-          # Copy web build to android assets
-          if [ -d dist/public ]; then
-            cp -r dist/public/. android/app/src/main/assets/
-          elif [ -d dist ]; then
-            cp -r dist/. android/app/src/main/assets/
-          fi
-          # Ensure capacitor plugin JSON exists
+          cp -r dist/public/. android/app/src/main/assets/
+          echo "Web assets copied to android/app/src/main/assets/"
           if [ ! -f android/app/src/main/assets/capacitor.plugins.json ]; then
             echo "[]" > android/app/src/main/assets/capacitor.plugins.json
           fi
-          # Copy capacitor config
-          cp capacitor.config.json android/app/src/main/assets/capacitor.config.json 2>/dev/null || true
-          # Try cap sync (optional)
-          ./node_modules/.bin/cap sync android --inline 2>/dev/null || true
+          cp capacitor.config.json android/app/src/main/assets/capacitor.config.json
+          echo "Capacitor config copied"
+          ./node_modules/.bin/cap sync android --inline 2>/dev/null && echo "cap sync done" || echo "cap sync skipped (not required)"
+
+      - name: Verify Android assets
+        run: |
+          echo "Contents of android/app/src/main/assets:"
+          ls -lh artifacts/flipstudio/android/app/src/main/assets/ || echo "assets dir missing"
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -171,12 +144,14 @@ jobs:
             APK=$(find artifacts/flipstudio/android -name "*.apk" | head -1)
           fi
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found!"
+            echo "ERROR: No APK found after build!"
+            find artifacts/flipstudio/android -name "*.apk" 2>/dev/null
             exit 1
           fi
           echo "Found APK: $APK"
           cp "$APK" release-output/FlipStudio.apk
           ls -lh release-output/
+          jarsigner -verify -verbose -certs release-output/FlipStudio.apk | tail -5
 
       - name: Upload FlipStudio APK
         uses: actions/upload-artifact@v4
@@ -188,10 +163,18 @@ jobs:
 
       - name: Summary
         run: |
+          APK_SIZE=$(du -sh release-output/FlipStudio.apk | cut -f1)
+          KEYSTORE_TYPE="${{ secrets.FLIPSTUDIO_KEYSTORE_BASE64 != '' && 'persistent (consistent signing)' || 'ephemeral (uninstall previous APK first)' }}"
           echo "## FlipStudio Release APK" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Build successful!**" >> $GITHUB_STEP_SUMMARY
           echo "- App: FlipStudio" >> $GITHUB_STEP_SUMMARY
           echo "- Package: com.flipstudio.app" >> $GITHUB_STEP_SUMMARY
           echo "- Type: Release (signed)" >> $GITHUB_STEP_SUMMARY
-          echo "- Size: $(du -sh release-output/FlipStudio.apk | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "- Keystore: $KEYSTORE_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "- Size: $APK_SIZE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Install Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download \`FlipStudio.apk\` from the artifacts above" >> $GITHUB_STEP_SUMMARY
+          echo "2. On your Android phone: Settings → Security → Enable **Unknown Sources** (or **Install unknown apps**)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Open the APK file and tap Install" >> $GITHUB_STEP_SUMMARY
