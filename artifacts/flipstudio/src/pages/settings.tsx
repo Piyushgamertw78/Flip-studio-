@@ -369,7 +369,30 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        {/* About */}
+        {/* Support */}
+          <div className="glass-panel rounded-2xl p-4">
+            <SectionHeader icon={<MessageCircle className="w-4 h-4"/>} title="Support" desc="Get help from the developer"/>
+            <p className="text-xs text-white/40 leading-relaxed mb-3">
+              Having an issue or want to suggest a feature? Send a message directly to the developer.
+            </p>
+            <a href="mailto:piyushpk811@gmail.com"
+              className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/[0.07] hover:bg-violet-600/10 hover:border-violet-500/30 transition-all group">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600/30 to-fuchsia-600/30 border border-violet-500/30 flex items-center justify-center text-violet-400 shrink-0">
+                <Mail className="w-5 h-5"/>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white group-hover:text-violet-300 transition-colors">Email the Developer</p>
+                <p className="text-xs text-white/40 font-medium">piyushpk811@gmail.com</p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-white/20 group-hover:text-violet-400 transition-colors shrink-0"/>
+            </a>
+            <div className="flex items-center gap-2 mt-2 p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"/>
+              <p className="text-xs text-white/40">Usually replies within <span className="text-emerald-400 font-semibold">24 hours</span></p>
+            </div>
+          </div>
+
+          {/* About */}
         <div className="glass-panel rounded-2xl p-4">
           <SectionHeader icon={<Info className="w-4 h-4"/>} title="About FlipStudio" desc="v2.0.0"/>
           <div className="space-y-2">
