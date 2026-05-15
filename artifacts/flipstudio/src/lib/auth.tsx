@@ -15,6 +15,7 @@ interface AuthCtx {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, username: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => void;
   updateProfile: (data: Partial<Pick<User, "username" | "bio" | "avatar">>) => void;
   hasAnyAccount: () => boolean;
@@ -158,6 +159,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithGoogle = useCallback(async () => {
+    if (SUPABASE_ENABLED) {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: "google" });
+      if (error) throw new Error(error.message);
+    } else {
+      // Offline Google Sign-In: creates a local account that looks like Google OAuth
+      // In production with Supabase enabled, this uses real Google OAuth
+      const googleId = `google_${crypto.randomUUID().slice(0, 8)}`;
+      const googleEmail = `${googleId}@gmail.com`;
+      const accounts = getLocalAccounts();
+      const existing = accounts.find(a => a.email === googleEmail);
+      let account: LocalAccount;
+      if (existing) {
+        account = existing;
+      } else {
+        account = {
+          id: crypto.randomUUID(),
+          username: `Artist_${googleId.slice(7)}`,
+          email: googleEmail,
+          password: `google_oauth_${crypto.randomUUID()}`,
+          avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${googleId}`,
+          createdAt: new Date().toISOString(),
+        };
+        accounts.push(account);
+        saveLocalAccounts(accounts);
+      }
+      const u: User = {
+        id: account.id,
+        username: account.username,
+        email: account.email,
+        avatar: account.avatar,
+        createdAt: account.createdAt,
+      };
+      saveLocalSession(u);
+      setUser(u);
+    }
+  }, []);
+
   const logout = useCallback(() => {
     if (SUPABASE_ENABLED) { void supabase.auth.signOut(); }
     saveLocalSession(null);
@@ -193,7 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, updateProfile, hasAnyAccount, deleteAccount }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, loginWithGoogle, logout, updateProfile, hasAnyAccount, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );
