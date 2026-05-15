@@ -11,6 +11,7 @@ import Studio from "@/pages/studio";
 import ExportPage from "@/pages/export-page";
 import LoginPage from "@/pages/login";
 import Whiteboard from "@/pages/whiteboard";
+import SettingsPage from "@/pages/settings";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -40,6 +41,9 @@ function Router() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/whiteboard" component={Whiteboard} />
+      <Route path="/settings">
+        <AuthGuard><SettingsPage /></AuthGuard>
+      </Route>
       <Route path="/projects/new">
         <AuthGuard><NewProject /></AuthGuard>
       </Route>

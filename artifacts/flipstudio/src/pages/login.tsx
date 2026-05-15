@@ -77,7 +77,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (tab === "login") {
-        await login(username, password);
+        await login(email, password);
       } else {
         await signup(username, email, password);
       }
@@ -198,34 +198,15 @@ export default function LoginPage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Username */}
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400/60 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder:text-white/25 outline-none transition-all"
-                style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(139,92,246,0.6)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
-              />
-            </div>
-
-            {/* Email (signup only) */}
+            {/* Username (signup only) */}
             {tab === "signup" && (
               <div className="relative" style={{ animation: "slideDown 0.25s ease both" }}>
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400/60 pointer-events-none" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400/60 pointer-events-none" />
                 <input
-                  type="email"
-                  placeholder="Email address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="text"
+                  placeholder="Username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   required
                   className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder:text-white/25 outline-none transition-all"
                   style={{
@@ -237,6 +218,25 @@ export default function LoginPage() {
                 />
               </div>
             )}
+
+            {/* Email */}
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400/60 pointer-events-none" />
+              <input
+                type="email"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder:text-white/25 outline-none transition-all"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(139,92,246,0.6)")}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
+              />
+            </div>
 
             {/* Password */}
             <div className="relative">

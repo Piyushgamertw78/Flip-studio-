@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Plus, Film, Clock, Download, LayoutGrid, LogOut, PenLine, Trash2, Copy, ExternalLink, MoreVertical } from "lucide-react";
+import { Plus, Film, Clock, Download, LayoutGrid, LogOut, PenLine, Trash2, Copy, ExternalLink, MoreVertical, Settings } from "lucide-react";
 import { format } from "date-fns";
 import {
   useListProjects,
@@ -129,6 +129,10 @@ export default function Dashboard() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">{user.email || user.username}</div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="gap-2" onClick={() => setLocation("/settings")}>
+                    <Settings className="w-4 h-4" /> Settings
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={logout}>
                     <LogOut className="w-4 h-4" /> Sign Out

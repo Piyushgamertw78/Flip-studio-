@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { supabase } from "./supabase";
 
 interface User {
   id: string;
@@ -24,41 +25,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored) as User);
-      } catch {}
-    }
-    setIsLoading(false);
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const userData: User = {
+          id: session.user.id,
+          username: session.user.user_metadata.username || session.user.email?.split("@")[0] || "user",
+          email: session.user.email || "",
+          avatar: session.user.user_metadata.avatar || `https://api.dicebear.com/7.x/thumbs/svg?seed=${session.user.id}`,
+        };
+        setUser(userData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+      } else {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          try {
+            setUser(JSON.parse(stored) as User);
+          } catch {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        }
+      }
+      setIsLoading(false);
+    };
+
+    checkUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const userData: User = {
+          id: session.user.id,
+          username: session.user.user_metadata.username || session.user.email?.split("@")[0] || "user",
+          email: session.user.email || "",
+          avatar: session.user.user_metadata.avatar || `https://api.dicebear.com/7.x/thumbs/svg?seed=${session.user.id}`,
+        };
+        setUser(userData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+      } else {
+        setUser(null);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (username: string, _password: string) => {
-    await new Promise((r) => setTimeout(r, 800));
-    const stored = localStorage.getItem(`flipstudio_account_${username}`);
-    if (!stored) throw new Error("Account not found. Please sign up first.");
-    const account = JSON.parse(stored) as User & { password: string };
-    const newUser: User = { id: account.id, username: account.username, email: account.email, avatar: account.avatar };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
-    setUser(newUser);
-  };
-
-  const signup = async (username: string, email: string, _password: string) => {
-    await new Promise((r) => setTimeout(r, 800));
-    const existing = localStorage.getItem(`flipstudio_account_${username}`);
-    if (existing) throw new Error("Username already taken. Please choose another.");
-    const newUser: User = {
-      id: crypto.randomUUID(),
-      username,
+  const login = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
       email,
-      avatar: `https://api.dicebear.com/7.x/thumbs/svg?seed=${username}`,
-    };
-    localStorage.setItem(`flipstudio_account_${username}`, JSON.stringify({ ...newUser, password: _password }));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
-    setUser(newUser);
+      password,
+    });
+    if (error) throw error;
   };
 
-  const logout = () => {
+  const signup = async (username: string, email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username,
+          avatar: `https://api.dicebear.com/7.x/thumbs/svg?seed=${username}`,
+        },
+      },
+    });
+    if (error) throw error;
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   };
