@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
-import { ArrowLeft, Download, Loader2, Film, ImageIcon, Video, Play, CheckCircle2, Zap, Settings2, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Film, ImageIcon, Video, Play, CheckCircle2, Settings2, X } from "lucide-react";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 import { Watermark } from "@/components/watermark";
 import { Button } from "@/components/ui/button";

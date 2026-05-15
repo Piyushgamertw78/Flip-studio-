@@ -6,11 +6,11 @@ import {
   ZoomIn, ZoomOut, Undo2, Redo2, Download, Grid3X3,
   Pencil, PenLine, Paintbrush, Eraser, PaintBucket, Move,
   Minus, Square, Circle, Triangle, Type, Pipette,
-  FlipHorizontal2, X, Repeat, Pen, Spray, Star, Hexagon,
-  AlignLeft, Repeat2, Settings2, SlidersHorizontal, Palette,
-  Music, Scissors, Clipboard, RotateCcw, VolumeX, Volume2,
+  FlipHorizontal2, X, Repeat, Star, Hexagon,
+  AlignLeft, Repeat2, Settings2, SlidersHorizontal,
+  Scissors, Clipboard,
   Maximize2, Target, ChevronRight, ChevronLeft, Film, Edit3,
-  Save, Share2, MoreHorizontal, Crosshair, Sliders, ArrowRight,
+  MoreHorizontal, Crosshair, Sliders, ArrowRight,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,7 +19,7 @@ import { Watermark } from "@/components/watermark";
 import { cn } from "@/lib/utils";
 import { db, type Project, type Frame, type Layer } from "@/lib/local-db";
 import {
-  type Tool, type Point, type Stroke, type CanvasData,
+  type Tool, type Point, type Stroke,
   safeParseCanvas, renderSingleStroke, compositeAllLayers,
 } from "@/lib/rendering";
 
@@ -34,9 +34,9 @@ const ALL_TOOLS: { id: Tool; icon: React.ReactNode; label: string; shortcut: str
   { id: "pen",         icon: <PenLine className="w-4 h-4" />,     label: "Ink Pen",      shortcut: "N", group: "draw" },
   { id: "brush",       icon: <Paintbrush className="w-4 h-4" />,  label: "Brush",        shortcut: "B", group: "draw" },
   { id: "chalk",       icon: <Edit3 className="w-4 h-4" />,       label: "Chalk",        shortcut: "H", group: "draw" },
-  { id: "marker",      icon: <Pen className="w-4 h-4" />,         label: "Marker",       shortcut: "M", group: "draw" },
+  { id: "marker",      icon: <PenLine className="w-4 h-4" />,     label: "Marker",       shortcut: "M", group: "draw" },
   { id: "watercolor",  icon: <Sliders className="w-4 h-4" />,     label: "Watercolor",   shortcut: "W", group: "draw" },
-  { id: "spray",       icon: <Spray className="w-4 h-4" />,       label: "Spray",        shortcut: "Y", group: "draw" },
+  { id: "spray",       icon: <Crosshair className="w-4 h-4" />,   label: "Spray",        shortcut: "Y", group: "draw" },
   { id: "calligraphy", icon: <AlignLeft className="w-4 h-4" />,   label: "Calligraphy",  shortcut: "G", group: "draw" },
   { id: "eraser",      icon: <Eraser className="w-4 h-4" />,      label: "Eraser",       shortcut: "E", group: "draw" },
   { id: "fill",        icon: <PaintBucket className="w-4 h-4" />, label: "Fill",         shortcut: "F", group: "draw" },

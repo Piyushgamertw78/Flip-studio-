@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import {
   Plus, Film, Clock, Trash2, MoreVertical, Search,
   Grid3X3, List, Settings, LogOut, Sparkles, FolderOpen,
-  Copy, Edit3, Download, Star, Palette, SlidersHorizontal,
+  Copy, Edit3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
