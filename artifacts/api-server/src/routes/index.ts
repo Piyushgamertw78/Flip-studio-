@@ -6,6 +6,7 @@ import layersRouter from "./layers";
 import exportsRouter from "./exports";
 import audioRouter from "./audio";
 import statsRouter from "./stats";
+import collabRouter from "./collab";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use("/projects/:projectId/layers", layersRouter);
 router.use("/projects/:projectId/exports", exportsRouter);
 router.use("/projects/:projectId/audio", audioRouter);
 router.use("/stats", statsRouter);
+router.use("/collab", collabRouter);
 
 export default router;
