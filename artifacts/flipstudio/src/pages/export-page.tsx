@@ -10,6 +10,62 @@ import { db, type Project, type Frame, type Layer } from "@/lib/local-db";
 import { compositeAllLayers, safeParseCanvas } from "@/lib/rendering";
 
 type ExportFormat = "gif" | "webm" | "png_sequence" | "jpg_sequence" | "mp4";
+
+  const isCapacitor = () =>
+    typeof window !== "undefined" && !!(window as any).Capacitor?.isNativePlatform?.();
+
+  async function saveFileToDevice(
+    blobOrDataUrl: Blob | string,
+    filename: string,
+    mimeType: string
+  ): Promise<void> {
+    if (isCapacitor()) {
+      try {
+        // Use Capacitor Filesystem to save to Downloads on Android
+        const { Filesystem, Directory } = await import("@capacitor/filesystem");
+        let base64: string;
+        if (typeof blobOrDataUrl === "string") {
+          base64 = blobOrDataUrl.includes(",") ? blobOrDataUrl.split(",")[1]! : blobOrDataUrl;
+        } else {
+          base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              resolve(result.includes(",") ? result.split(",")[1]! : result);
+            };
+            reader.readAsDataURL(blobOrDataUrl);
+          });
+        }
+        await Filesystem.writeFile({
+          path: filename,
+          data: base64,
+          directory: Directory.Documents,
+          recursive: true,
+        });
+        return;
+      } catch (fsErr) {
+        console.warn("Filesystem save failed, falling back to share:", fsErr);
+        // Fallback: try Web Share API
+        if (navigator.share && typeof blobOrDataUrl !== "string") {
+          const file = new File([blobOrDataUrl], filename, { type: mimeType });
+          await navigator.share({ files: [file], title: filename });
+          return;
+        }
+      }
+    }
+    // Web fallback: anchor download
+    const url =
+      typeof blobOrDataUrl === "string"
+        ? blobOrDataUrl
+        : URL.createObjectURL(blobOrDataUrl);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (typeof blobOrDataUrl !== "string") setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
 type Quality = "low" | "medium" | "high" | "ultra";
 
 const QUALITY_SCALE: Record<Quality, number> = { low: 0.4, medium: 0.65, high: 0.85, ultra: 1 };
@@ -186,7 +242,7 @@ export default function ExportPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#07070f] text-white flex flex-col">
+    <div className="min-h-screen bg-[#07070f] text-white flex flex-col page-enter-left">
       {/* Header */}
       <div className="h-12 border-b border-white/[0.07] bg-[#0b0b18] flex items-center px-3 gap-2 shrink-0">
         <button className="w-8 h-8 rounded flex items-center justify-center text-white/40 hover:text-white hover:bg-white/5 transition-colors"
@@ -335,7 +391,9 @@ export default function ExportPage() {
           {done && !exporting && (
             <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-xl px-4 py-3">
               <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0"/>
-              <span className="text-sm text-green-300">Export complete! Check your downloads.</span>
+              <span className="text-sm text-green-300">
+                {isCapacitor() ? "Saved to Documents on device! Open Files app to find it." : "Export complete! Check your downloads."}
+              </span>
             </div>
           )}
 
