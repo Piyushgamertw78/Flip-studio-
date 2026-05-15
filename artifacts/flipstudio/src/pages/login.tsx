@@ -1,24 +1,66 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Sparkles, User, Lock, Mail, ArrowRight, Film } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
 import { SUPABASE_ENABLED } from "@/lib/supabase";
+
+function PasswordStrength({ password }: { password: string }) {
+  const score = [
+    password.length >= 6,
+    password.length >= 10,
+    /[A-Z]/.test(password),
+    /[0-9]/.test(password),
+    /[^A-Za-z0-9]/.test(password),
+  ].filter(Boolean).length;
+
+  const colors = ["bg-red-500", "bg-orange-500", "bg-yellow-500", "bg-lime-500", "bg-emerald-500"];
+  const labels = ["Weak", "Fair", "Good", "Strong", "Excellent"];
+
+  if (!password) return null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      <div className="flex gap-1">
+        {[...Array(5)].map((_, i) => (
+          <div key={i}
+            className={`h-1 flex-1 rounded-full transition-all duration-300 ${i < score ? colors[score - 1] : "bg-white/10"}`}
+          />
+        ))}
+      </div>
+      <p className="text-[10px] text-white/35">{labels[score - 1] ?? "Enter password"}</p>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
-  const { login, register } = useAuth();
+  const { login, register, hasAnyAccount } = useAuth();
   const { toast } = useToast();
+
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
+  const [email, setEmail]       = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showPw, setShowPw]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
+
+  useEffect(() => {
+    if (!SUPABASE_ENABLED && !hasAnyAccount()) {
+      setMode("register");
+    }
+  }, [hasAnyAccount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      toast({ title: "Fill in all fields", variant: "destructive" });
+      return;
+    }
+    if (mode === "register" && !username.trim()) {
+      toast({ title: "Choose a username", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "login") {
@@ -28,25 +70,9 @@ export default function LoginPage() {
       }
       setLocation("/");
     } catch (err) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const continueAsGuest = async () => {
-    setLoading(true);
-    try {
-      // Always create a unique guest account in local mode — no Supabase needed
-      const guestId   = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const guestEmail = `guest_${Date.now()}@flipstudio.local`;
-      const guestPw    = `guestpw_${Date.now()}`;
-      await register(guestEmail, `Guest_${guestId}`, guestPw);
-      setLocation("/");
-    } catch (err) {
       toast({
-        title: "Could not create guest session",
-        description: err instanceof Error ? err.message : "Please try again",
+        title: mode === "login" ? "Sign-in failed" : "Registration failed",
+        description: err instanceof Error ? err.message : "Something went wrong",
         variant: "destructive",
       });
     } finally {
@@ -54,104 +80,199 @@ export default function LoginPage() {
     }
   };
 
+  const continueAsGuest = async () => {
+    setGuestLoading(true);
+    try {
+      const guestId    = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const guestEmail = `guest_${Date.now()}@flipstudio.local`;
+      const guestPw    = `guestpw_${Date.now()}`;
+      await register(guestEmail, `Guest_${guestId}`, guestPw);
+      setLocation("/");
+    } catch (err) {
+      toast({
+        title: "Could not start guest session",
+        description: err instanceof Error ? err.message : "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setGuestLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#080811] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-violet-600/10 blur-3xl"/>
-        <div className="absolute bottom-1/4 left-1/3 w-64 h-64 rounded-full bg-fuchsia-600/8 blur-3xl"/>
+    <div className="min-h-screen bg-[#060610] flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Aurora background */}
+      <div className="aurora-bg">
+        <div className="aurora-blob aurora-blob-1"/>
+        <div className="aurora-blob aurora-blob-2"/>
+        <div className="aurora-blob aurora-blob-3"/>
       </div>
 
-      <div className="relative w-full max-w-sm">
+      {/* Noise texture overlay */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+        style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E\")" }}
+      />
+
+      <div className="relative w-full max-w-sm z-10 fade-in-scale">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-2xl shadow-violet-900/50 mb-4">
-            <svg width="40" height="40" viewBox="0 0 100 100">
-              <rect x="8" y="28" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="8" y="42" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="8" y="56" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="83" y="28" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="83" y="42" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="83" y="56" width="9" height="9" rx="2" fill="rgba(255,255,255,0.5)"/>
-              <rect x="22" y="18" width="56" height="64" rx="4" fill="rgba(0,0,0,0.3)"/>
-              <rect x="27" y="23" width="20" height="20" rx="3" fill="rgba(255,255,255,0.9)"/>
-              <rect x="53" y="23" width="20" height="20" rx="3" fill="rgba(255,255,255,0.2)"/>
-              <rect x="27" y="48" width="20" height="20" rx="3" fill="rgba(255,255,255,0.2)"/>
-              <rect x="53" y="48" width="20" height="20" rx="3" fill="rgba(255,255,255,0.2)"/>
-              <line x1="31" y1="35" x2="42" y2="27" stroke="white" strokeWidth="3" strokeLinecap="round"/>
-              <polygon points="42,27 44,31 40,32" fill="white"/>
-            </svg>
+          <div className="relative inline-block mb-5">
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-violet-800
+              flex items-center justify-center shadow-2xl shadow-violet-900/60 glow-violet float">
+              <Film className="w-10 h-10 text-white drop-shadow-lg" />
+            </div>
+            <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+              <Sparkles className="w-2.5 h-2.5 text-white" />
+            </div>
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-white">FlipStudio</h1>
-          <p className="text-sm text-white/40 mt-1">Professional Animation Studio</p>
+
+          <h1 className="text-4xl font-black tracking-tight text-white mb-1 glow-text-violet">
+            Flip<span className="gradient-text-violet">Studio</span>
+          </h1>
+          <p className="text-sm text-white/40 font-medium">Professional Animation Studio</p>
+
           {!SUPABASE_ENABLED && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-amber-400/70 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5 mt-2">
-              Offline Mode — data saved locally
-            </span>
+            <div className="inline-flex items-center gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/10
+              border border-amber-500/20 rounded-full px-3 py-1 mt-3">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>
+              Offline Mode — data saved on device
+            </div>
           )}
         </div>
 
-        {/* Card */}
-        <div className="bg-white/[0.04] border border-white/[0.08] rounded-3xl p-6 backdrop-blur-sm">
+        {/* Main Card */}
+        <div className="glass-panel rounded-3xl p-6">
           {/* Tab switcher */}
-          <div className="flex bg-white/5 rounded-xl p-1 mb-5">
-            {(["login","register"] as const).map(m=>(
-              <button key={m} onClick={()=>setMode(m)}
-                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${mode===m?"bg-violet-600 text-white shadow-lg":"text-white/40 hover:text-white"}`}>
+          <div className="flex bg-white/5 rounded-2xl p-1 mb-5">
+            {(["login","register"] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                  mode === m
+                    ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40"
+                    : "text-white/35 hover:text-white/70"
+                }`}>
                 {m === "login" ? "Sign In" : "Sign Up"}
               </button>
             ))}
           </div>
 
+          {/* Info banner for new users */}
+          {mode === "register" && !SUPABASE_ENABLED && (
+            <div className="glass rounded-2xl p-3 mb-4 border-violet-500/20">
+              <p className="text-[11px] text-violet-300/80 text-center leading-relaxed">
+                Create a free local account to save your animations on this device.
+              </p>
+            </div>
+          )}
+
+          {mode === "login" && !SUPABASE_ENABLED && !hasAnyAccount() && (
+            <div className="glass rounded-2xl p-3 mb-4 border-amber-500/20">
+              <p className="text-[11px] text-amber-300/80 text-center leading-relaxed">
+                No accounts found. Switch to <button className="text-amber-300 underline font-semibold" onClick={() => setMode("register")}>Sign Up</button> to create one, or use Guest mode below.
+              </p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-3">
             {mode === "register" && (
               <div>
-                <label className="text-xs text-white/50 font-medium mb-1 block">Username</label>
-                <input value={username} onChange={e=>setUsername(e.target.value)} required
-                  className="w-full px-4 py-3 text-sm bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/25 focus:outline-none focus:border-violet-500 transition-colors"
-                  placeholder="your_username"/>
+                <label className="text-[11px] text-white/45 font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <User className="w-3 h-3"/> Username
+                </label>
+                <input
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
+                  className="glass-input w-full px-4 py-3 text-sm rounded-xl"
+                  placeholder="your_username"
+                  autoComplete="username"
+                />
               </div>
             )}
+
             <div>
-              <label className="text-xs text-white/50 font-medium mb-1 block">Email</label>
-              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} required
-                className="w-full px-4 py-3 text-sm bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/25 focus:outline-none focus:border-violet-500 transition-colors"
-                placeholder="you@example.com"/>
+              <label className="text-[11px] text-white/45 font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Mail className="w-3 h-3"/> Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="glass-input w-full px-4 py-3 text-sm rounded-xl"
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
             </div>
+
             <div>
-              <label className="text-xs text-white/50 font-medium mb-1 block">Password</label>
+              <label className="text-[11px] text-white/45 font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Lock className="w-3 h-3"/> Password
+              </label>
               <div className="relative">
-                <input type={showPw?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} required minLength={6}
-                  className="w-full px-4 py-3 pr-11 text-sm bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/25 focus:outline-none focus:border-violet-500 transition-colors"
-                  placeholder="••••••••"/>
-                <button type="button" onClick={()=>setShowPw(p=>!p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white">
+                <input
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  minLength={mode === "register" ? 4 : 1}
+                  className="glass-input w-full px-4 py-3 pr-11 text-sm rounded-xl"
+                  placeholder={mode === "register" ? "Min 4 characters" : "••••••••"}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition-colors">
                   {showPw ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
                 </button>
               </div>
+              {mode === "register" && <PasswordStrength password={password} />}
             </div>
 
-            <Button type="submit" disabled={loading}
-              className="w-full h-12 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 border-0 font-bold text-base rounded-xl shadow-lg shadow-violet-900/30 mt-1">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : null}
-              {mode === "login" ? "Sign In" : "Create Account"}
-            </Button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 mt-1 bg-gradient-to-r from-violet-600 to-fuchsia-600
+                hover:from-violet-500 hover:to-fuchsia-500 active:scale-[0.97]
+                rounded-xl font-bold text-base text-white shadow-lg shadow-violet-900/40
+                transition-all duration-200 flex items-center justify-center gap-2
+                disabled:opacity-60 disabled:cursor-not-allowed press">
+              {loading
+                ? <Loader2 className="w-4 h-4 animate-spin"/>
+                : <>
+                    {mode === "login" ? "Sign In" : "Create Account"}
+                    <ArrowRight className="w-4 h-4"/>
+                  </>}
+            </button>
           </form>
 
-          <div className="mt-3 flex items-center gap-3">
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-4">
             <div className="flex-1 h-px bg-white/8"/>
-            <span className="text-xs text-white/25">or</span>
+            <span className="text-xs text-white/20 font-medium">or</span>
             <div className="flex-1 h-px bg-white/8"/>
           </div>
 
-          <button onClick={continueAsGuest} disabled={loading}
-            className="w-full mt-3 py-3 text-sm font-medium text-white/50 hover:text-white/80 bg-white/3 hover:bg-white/6 border border-white/8 hover:border-white/15 rounded-xl transition-all flex items-center justify-center gap-2">
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : null}
+          {/* Guest button */}
+          <button
+            onClick={continueAsGuest}
+            disabled={guestLoading}
+            className="glass-btn w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 press">
+            {guestLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Sparkles className="w-3.5 h-3.5 text-violet-400"/>}
             Continue as Guest
           </button>
         </div>
 
-        <p className="text-center text-xs text-white/20 mt-4">
-          {SUPABASE_ENABLED ? "Synced across devices" : "All data stored locally on this device"}
+        {/* Footer */}
+        <p className="text-center text-xs text-white/18 mt-5 leading-relaxed">
+          {SUPABASE_ENABLED
+            ? "Your animations sync across all devices"
+            : "All data stored locally — no internet needed"}
+        </p>
+
+        <p className="text-center text-[10px] text-white/12 mt-2">
+          FlipStudio v2.0 · Made with passion
         </p>
       </div>
     </div>

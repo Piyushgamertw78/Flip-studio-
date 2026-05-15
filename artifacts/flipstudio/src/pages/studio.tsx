@@ -190,21 +190,26 @@ export default function Studio() {
   // ─── Load project ───────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
-      const [proj, fs] = await Promise.all([db.projects.get(projectId), db.frames.listByProject(projectId)]);
-      if (!proj) { setLocation("/"); return; }
-      setProject(proj);
-      setFrames(fs);
-      setProjectNameVal(proj.name);
-      if (proj.audioTrack) setAudioURL(proj.audioTrack);
-      if (fs.length > 0) {
-        const ls = await db.layers.listByFrame(fs[0]!.id);
-        setLayers(ls);
-        const map = new Map<number, Stroke[]>();
-        for (const l of ls) map.set(l.id, safeParseCanvas(l.canvasData).strokes);
-        layerStrokes.current = map;
-        setCurrentLayerId(ls[0]?.id ?? null);
+      try {
+        const [proj, fs] = await Promise.all([db.projects.get(projectId), db.frames.listByProject(projectId)]);
+        if (!proj) { setLoading(false); setLocation("/"); return; }
+        setProject(proj);
+        setFrames(fs);
+        setProjectNameVal(proj.name);
+        if (proj.audioTrack) setAudioURL(proj.audioTrack);
+        if (fs.length > 0) {
+          const ls = await db.layers.listByFrame(fs[0]!.id);
+          setLayers(ls);
+          const map = new Map<number, Stroke[]>();
+          for (const l of ls) map.set(l.id, safeParseCanvas(l.canvasData).strokes);
+          layerStrokes.current = map;
+          setCurrentLayerId(ls[0]?.id ?? null);
+        }
+        setLoading(false);
+      } catch {
+        setLoading(false);
+        setLocation("/");
       }
-      setLoading(false);
     };
     void load();
   }, [projectId]);
