@@ -1,0 +1,97 @@
+name: Release APK
+
+  on:
+    push:
+      tags:
+        - "v*.*.*"
+
+  permissions:
+    contents: write
+
+  jobs:
+    release:
+      name: Build & Release APK
+      runs-on: ubuntu-latest
+
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: "20"
+            cache: "npm"
+            cache-dependency-path: artifacts/flipstudio/package-lock.json
+
+        - name: Install JS dependencies
+          working-directory: artifacts/flipstudio
+          run: npm ci
+
+        - name: Build web assets
+          working-directory: artifacts/flipstudio
+          run: npm run build
+
+        - name: Sync Capacitor
+          working-directory: artifacts/flipstudio
+          run: npx cap sync android
+
+        - name: Setup Java 21
+          uses: actions/setup-java@v4
+          with:
+            distribution: temurin
+            java-version: "21"
+
+        - name: Setup Android SDK
+          uses: android-actions/setup-android@v3
+
+        - name: Cache Gradle
+          uses: actions/cache@v4
+          with:
+            path: |
+              ~/.gradle/caches
+              ~/.gradle/wrapper
+              artifacts/flipstudio/android/.gradle
+            key: gradle-${{ hashFiles('artifacts/flipstudio/android/**/*.gradle*', 'artifacts/flipstudio/android/gradle/wrapper/gradle-wrapper.properties') }}
+            restore-keys: gradle-
+
+        - name: Build Release APK
+          working-directory: artifacts/flipstudio/android
+          run: ./gradlew assembleRelease --no-daemon --stacktrace
+          env:
+            JAVA_HOME: ${{ env.JAVA_HOME }}
+
+        - name: Locate APK
+          id: find_apk
+          run: |
+            APK_PATH=$(find artifacts/flipstudio/android -name "*.apk" -path "*/release/*" | head -1)
+            echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+            echo "Found: $APK_PATH"
+
+        - name: Rename APK
+          run: |
+            VERSION=${{ github.ref_name }}
+            cp "${{ steps.find_apk.outputs.apk_path }}" "FlipStudio-${VERSION}.apk"
+
+        - name: Create GitHub Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ github.ref_name }}
+            name: "FlipStudio ${{ github.ref_name }}"
+            body: |
+              ## FlipStudio ${{ github.ref_name }}
+
+              Download the APK below and install it on your Android device.
+
+              ### Install Instructions
+              1. Download `FlipStudio-${{ github.ref_name }}.apk`
+              2. On your Android device, go to **Settings → Security → Unknown sources** and enable it
+              3. Open the downloaded APK and tap **Install**
+
+              > Built from commit ${{ github.sha }}
+            files: "FlipStudio-${{ github.ref_name }}.apk"
+            draft: false
+            prerelease: ${{ contains(github.ref_name, '-') }}
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
