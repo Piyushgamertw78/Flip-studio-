@@ -126,7 +126,7 @@ export default function NewProjectPage() {
   const previewH = Math.min(50, 50 / aspectRatio);
 
   return (
-    <div className="min-h-screen bg-[#06060f] text-white flex flex-col overflow-x-hidden">
+    <div className="page-enter min-h-screen bg-[#06060f] text-white flex flex-col overflow-x-hidden">
       {/* Aurora */}
       <div className="aurora-bg pointer-events-none">
         <div className="aurora-blob aurora-blob-1 opacity-30"/>
