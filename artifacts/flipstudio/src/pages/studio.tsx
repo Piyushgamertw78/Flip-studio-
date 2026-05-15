@@ -1,691 +1,902 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useParams, useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useGetProject, useListFrames, useListLayers, useCreateFrame,
-  useUpdateFrame, useDeleteFrame, useDuplicateFrame, useCreateLayer,
-  useUpdateLayer, useDeleteLayer, useUpdateProjectThumbnail,
-  getListFramesQueryKey, getListLayersQueryKey, getGetProjectQueryKey,
-} from "@workspace/api-client-react";
-import {
-  ArrowLeft, Play, Pause, SkipBack, SkipForward, Plus, Trash2,
-  Eye, EyeOff, Lock, Unlock, Copy, Layers, ChevronDown,
-  ZoomIn, ZoomOut, Undo2, Redo2, Download, Grid3X3,
-  Pencil, PenLine, Paintbrush, Eraser, PaintBucket, Move,
-  Minus, Square, Circle, Triangle, ArrowRight as ArrowTool,
-  Type, Pipette, FlipHorizontal2, Ruler, ScanLine,
-  ChevronLeft, ChevronRight, Film, Settings, Menu, X
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Watermark } from "@/components/watermark";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
+  import { useParams, useLocation } from "wouter";
+  import {
+    ArrowLeft, Play, Pause, SkipBack, SkipForward, Plus, Trash2,
+    Eye, EyeOff, Lock, Unlock, Copy, Layers, ChevronDown,
+    ZoomIn, ZoomOut, Undo2, Redo2, Download, Grid3X3,
+    Pencil, PenLine, Paintbrush, Eraser, PaintBucket, Move,
+    Minus, Square, Circle, Triangle, ArrowRight as ArrowTool,
+    Type, Pipette, FlipHorizontal2, Settings, Menu, X, Droplets,
+  } from "lucide-react";
+  import { Button } from "@/components/ui/button";
+  import { Slider } from "@/components/ui/slider";
+  import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+  import { Skeleton } from "@/components/ui/skeleton";
+  import { Watermark } from "@/components/watermark";
+  import { cn } from "@/lib/utils";
+  import { useIsMobile } from "@/hooks/use-mobile";
+  import { db, type Project, type Frame, type Layer } from "@/lib/local-db";
 
-type Tool =
-  | "pencil" | "pen" | "brush" | "eraser" | "fill" | "move"
-  | "line" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eyedropper";
+  type Tool =
+    | "pencil" | "pen" | "brush" | "eraser" | "fill" | "move"
+    | "line" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eyedropper";
 
-interface Stroke {
-  tool: Tool;
-  color: string;
-  size: number;
-  opacity: number;
-  points: { x: number; y: number; pressure: number }[];
-  text?: string;
-  x?: number;
-  y?: number;
-}
-
-interface CanvasData { strokes: Stroke[]; }
-
-const TOOLS: { id: Tool; icon: React.ReactNode; label: string; key: string }[] = [
-  { id: "pencil",    icon: <Pencil className="w-4 h-4" />,      label: "Pencil",      key: "P" },
-  { id: "pen",       icon: <PenLine className="w-4 h-4" />,     label: "Pen",         key: "N" },
-  { id: "brush",     icon: <Paintbrush className="w-4 h-4" />,  label: "Brush",       key: "B" },
-  { id: "eraser",    icon: <Eraser className="w-4 h-4" />,      label: "Eraser",      key: "E" },
-  { id: "fill",      icon: <PaintBucket className="w-4 h-4" />, label: "Fill",        key: "F" },
-  { id: "eyedropper",icon: <Pipette className="w-4 h-4" />,    label: "Eyedropper",  key: "I" },
-  { id: "move",      icon: <Move className="w-4 h-4" />,        label: "Pan",         key: "V" },
-  { id: "line",      icon: <Minus className="w-4 h-4" />,       label: "Line",        key: "L" },
-  { id: "rect",      icon: <Square className="w-4 h-4" />,      label: "Rectangle",   key: "R" },
-  { id: "ellipse",   icon: <Circle className="w-4 h-4" />,      label: "Ellipse",     key: "O" },
-  { id: "triangle",  icon: <Triangle className="w-4 h-4" />,    label: "Triangle",    key: "T" },
-  { id: "arrow",     icon: <ArrowTool className="w-4 h-4" />,   label: "Arrow",       key: "A" },
-  { id: "text",      icon: <Type className="w-4 h-4" />,        label: "Text",        key: "X" },
-];
-
-const PRESET_COLORS = [
-  "#000000","#ffffff","#ef4444","#f97316","#eab308","#22c55e",
-  "#3b82f6","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f59e0b",
-  "#a855f7","#14b8a6","#fb923c","#64748b",
-];
-
-function hexToRgb(hex: string) {
-  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return r ? { r: parseInt(r[1]!,16), g: parseInt(r[2]!,16), b: parseInt(r[3]!,16) } : null;
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  return "#" + [r,g,b].map(x => x.toString(16).padStart(2,"0")).join("");
-}
-
-function floodFill(ctx: CanvasRenderingContext2D, sx: number, sy: number, fill: string) {
-  const img = ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height);
-  const d = img.data, W = ctx.canvas.width, H = ctx.canvas.height;
-  const i = (sy*W+sx)*4;
-  const [tr,tg,tb,ta] = [d[i]!,d[i+1]!,d[i+2]!,d[i+3]!];
-  const fr = hexToRgb(fill);
-  if (!fr) return;
-  if (tr===fr.r&&tg===fr.g&&tb===fr.b&&ta===255) return;
-  const stack: number[] = [sx+sy*W];
-  const seen = new Uint8Array(W*H);
-  while (stack.length) {
-    const p = stack.pop()!;
-    if (seen[p]) continue; seen[p]=1;
-    const x = p%W, y = (p-x)/W;
-    if (x<0||x>=W||y<0||y>=H) continue;
-    const j = p*4;
-    if (Math.abs(d[j]!-tr)>35||Math.abs(d[j+1]!-tg)>35||Math.abs(d[j+2]!-tb)>35) continue;
-    d[j]=fr.r; d[j+1]=fr.g; d[j+2]=fr.b; d[j+3]=255;
-    stack.push(p+1,p-1,p+W,p-W);
+  interface Point { x: number; y: number; pressure: number; }
+  interface Stroke {
+    tool: Tool;
+    color: string;
+    size: number;
+    opacity: number;
+    points: Point[];
+    text?: string;
+    x?: number;
+    y?: number;
   }
-  ctx.putImageData(img,0,0);
-}
+  interface CanvasData { strokes: Stroke[]; }
 
-function drawArrow(ctx: CanvasRenderingContext2D, x1:number, y1:number, x2:number, y2:number, lw:number) {
-  const angle = Math.atan2(y2-y1, x2-x1);
-  const head = Math.max(lw*3, 14);
-  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x2,y2);
-  ctx.lineTo(x2-head*Math.cos(angle-Math.PI/6), y2-head*Math.sin(angle-Math.PI/6));
-  ctx.lineTo(x2-head*Math.cos(angle+Math.PI/6), y2-head*Math.sin(angle+Math.PI/6));
-  ctx.closePath(); ctx.fill();
-}
+  const TOOLS: { id: Tool; icon: React.ReactNode; label: string; key: string }[] = [
+    { id: "pencil",     icon: <Pencil className="w-4 h-4" />,      label: "Pencil",      key: "P" },
+    { id: "pen",        icon: <PenLine className="w-4 h-4" />,     label: "Pen",         key: "N" },
+    { id: "brush",      icon: <Paintbrush className="w-4 h-4" />,  label: "Brush",       key: "B" },
+    { id: "eraser",     icon: <Eraser className="w-4 h-4" />,      label: "Eraser",      key: "E" },
+    { id: "fill",       icon: <PaintBucket className="w-4 h-4" />, label: "Fill",        key: "F" },
+    { id: "eyedropper", icon: <Pipette className="w-4 h-4" />,     label: "Eyedropper",  key: "I" },
+    { id: "move",       icon: <Move className="w-4 h-4" />,        label: "Pan",         key: "V" },
+    { id: "line",       icon: <Minus className="w-4 h-4" />,       label: "Line",        key: "L" },
+    { id: "rect",       icon: <Square className="w-4 h-4" />,      label: "Rectangle",   key: "R" },
+    { id: "ellipse",    icon: <Circle className="w-4 h-4" />,      label: "Ellipse",     key: "O" },
+    { id: "triangle",   icon: <Triangle className="w-4 h-4" />,    label: "Triangle",    key: "T" },
+    { id: "arrow",      icon: <ArrowTool className="w-4 h-4" />,   label: "Arrow",       key: "A" },
+    { id: "text",       icon: <Type className="w-4 h-4" />,        label: "Text",        key: "X" },
+  ];
 
-export default function Studio() {
-  const params = useParams<{ id: string }>();
-  const projectId = Number(params.id);
-  const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
-  const isMobile = useIsMobile();
+  const PRESET_COLORS = [
+    "#000000","#ffffff","#ef4444","#f97316","#eab308","#22c55e",
+    "#3b82f6","#8b5cf6","#ec4899","#06b6d4","#a3a3a3","#78350f",
+  ];
 
-  const { data: project, isLoading: projectLoading } = useGetProject(projectId, { query: { queryKey: getGetProjectQueryKey(projectId) } });
-  const { data: frames = [], isLoading: framesLoading } = useListFrames(projectId, { query: { queryKey: getListFramesQueryKey(projectId) } });
-  const { data: layers = [], isLoading: layersLoading } = useListLayers(projectId, { query: { queryKey: getListLayersQueryKey(projectId) } });
+  function hexToRgba(hex: string, opacity: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${opacity / 100})`;
+  }
 
-  const createFrame = useCreateFrame();
-  const updateFrame = useUpdateFrame();
-  const deleteFrame = useDeleteFrame();
-  const duplicateFrame = useDuplicateFrame();
-  const createLayer = useCreateLayer();
-  const updateLayer = useUpdateLayer();
-  const deleteLayer = useDeleteLayer();
-  const updateThumbnail = useUpdateProjectThumbnail();
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isDrawingRef = useRef(false);
-  const currentStrokeRef = useRef<Stroke | null>(null);
-  const startPtRef = useRef<{ x: number; y: number } | null>(null);
-  const isPanningRef = useRef(false);
-  const panStartRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
-  const undoStackRef = useRef<CanvasData[]>([]);
-  const redoStackRef = useRef<CanvasData[]>([]);
-
-  const [activeTool, setActiveTool] = useState<Tool>("pencil");
-  const [brushSize, setBrushSize] = useState(8);
-  const [brushOpacity, setBrushOpacity] = useState(100);
-  const [brushHardness, setBrushHardness] = useState(80);
-  const [activeColor, setActiveColor] = useState("#000000");
-  const [colorHistory, setColorHistory] = useState<string[]>(PRESET_COLORS.slice(0,8));
-  const [zoom, setZoom] = useState(1);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
-  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [onionSkin, setOnionSkin] = useState(true);
-  const [onionFrames, setOnionFrames] = useState(1);
-  const [symmetryMode, setSymmetryMode] = useState(false);
-  const [showGrid, setShowGrid] = useState(false);
-  const [showRuler, setShowRuler] = useState(false);
-  const [layerPanelOpen, setLayerPanelOpen] = useState(!isMobile);
-  const [toolPanelOpen, setToolPanelOpen] = useState(!isMobile);
-  const [activeLayerId, setActiveLayerId] = useState<number | null>(null);
-  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
-  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const sortedFrames = [...frames].sort((a, b) => a.frameIndex - b.frameIndex);
-  const sortedLayers = [...layers].sort((a, b) => b.layerIndex - a.layerIndex);
-  const currentFrame = sortedFrames[currentFrameIndex];
-
-  useEffect(() => {
-    if (sortedLayers.length > 0 && activeLayerId === null) setActiveLayerId(sortedLayers[0]?.id ?? null);
-  }, [sortedLayers, activeLayerId]);
-
-  const parseCD = (raw: string | null | undefined): CanvasData => {
-    if (!raw) return { strokes: [] };
-    try { return JSON.parse(raw) as CanvasData; } catch { return { strokes: [] }; }
-  };
-
-  const renderStrokes = (ctx: CanvasRenderingContext2D, strokes: Stroke[], tint: string | null) => {
+  function renderStrokes(ctx: CanvasRenderingContext2D, strokes: Stroke[], w: number, h: number) {
     for (const s of strokes) {
-      ctx.save();
-      ctx.strokeStyle = tint || s.color;
-      ctx.fillStyle = tint || s.color;
+      if (!s.points.length && s.tool !== "text" && s.tool !== "fill") continue;
+      ctx.globalAlpha = (s.opacity ?? 100) / 100;
+      ctx.strokeStyle = s.color;
+      ctx.fillStyle = s.color;
       ctx.lineWidth = s.size;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.globalAlpha = tint ? 0.4 : s.opacity / 100;
 
-      if (s.tool === "eraser") ctx.globalCompositeOperation = "destination-out";
-      if (s.tool === "brush") { ctx.shadowBlur = s.size * (brushHardness < 50 ? (100 - brushHardness) / 10 : 0); ctx.shadowColor = tint || s.color; }
+      if (s.tool === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+      }
 
-      if (s.tool === "text" && s.text && s.x !== undefined && s.y !== undefined) {
-        ctx.font = `${Math.max(s.size * 3, 12)}px Inter, sans-serif`;
-        ctx.fillText(s.text, s.x, s.y);
-      } else if ((s.tool === "pencil" || s.tool === "pen" || s.tool === "brush" || s.tool === "eraser") && s.points.length >= 2) {
+      if (s.tool === "fill") {
+        ctx.fillStyle = s.color;
+        ctx.fillRect(0, 0, w, h);
+      } else if (s.tool === "text" && s.text && s.x !== undefined && s.y !== undefined) {
+        ctx.font = `${s.size * 4}px Inter, sans-serif`;
+        ctx.fillStyle = s.color;
+        ctx.fillText(s.text, s.x * w, s.y * h);
+      } else if (s.tool === "line" && s.points.length >= 2) {
+        const p0 = s.points[0]!; const p1 = s.points[s.points.length - 1]!;
+        ctx.beginPath(); ctx.moveTo(p0.x * w, p0.y * h); ctx.lineTo(p1.x * w, p1.y * h); ctx.stroke();
+      } else if (s.tool === "rect" && s.points.length >= 2) {
+        const p0 = s.points[0]!; const p1 = s.points[s.points.length - 1]!;
+        ctx.strokeRect((p0.x * w), (p0.y * h), ((p1.x - p0.x) * w), ((p1.y - p0.y) * h));
+      } else if (s.tool === "ellipse" && s.points.length >= 2) {
+        const p0 = s.points[0]!; const p1 = s.points[s.points.length - 1]!;
+        const cx = (p0.x + p1.x) / 2 * w; const cy = (p0.y + p1.y) / 2 * h;
+        const rx = Math.abs(p1.x - p0.x) / 2 * w; const ry = Math.abs(p1.y - p0.y) / 2 * h;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (s.tool === "triangle" && s.points.length >= 2) {
+        const p0 = s.points[0]!; const p1 = s.points[s.points.length - 1]!;
         ctx.beginPath();
-        ctx.moveTo(s.points[0]!.x, s.points[0]!.y);
-        for (let i = 1; i < s.points.length - 1; i++) {
-          const xc = (s.points[i]!.x + s.points[i+1]!.x) / 2;
-          const yc = (s.points[i]!.y + s.points[i+1]!.y) / 2;
-          ctx.quadraticCurveTo(s.points[i]!.x, s.points[i]!.y, xc, yc);
+        ctx.moveTo((p0.x + p1.x) / 2 * w, p0.y * h);
+        ctx.lineTo(p0.x * w, p1.y * h);
+        ctx.lineTo(p1.x * w, p1.y * h);
+        ctx.closePath(); ctx.stroke();
+      } else if (s.tool === "arrow" && s.points.length >= 2) {
+        const p0 = s.points[0]!; const p1 = s.points[s.points.length - 1]!;
+        const sx = p0.x * w, sy = p0.y * h, ex = p1.x * w, ey = p1.y * h;
+        const angle = Math.atan2(ey - sy, ex - sx);
+        const hw = s.size * 4;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - hw * Math.cos(angle - Math.PI / 6), ey - hw * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(ex - hw * Math.cos(angle + Math.PI / 6), ey - hw * Math.sin(angle + Math.PI / 6));
+        ctx.closePath(); ctx.fill();
+      } else if (["pencil", "pen", "brush"].includes(s.tool) && s.points.length > 0) {
+        ctx.lineWidth = s.tool === "brush" ? s.size * 2 : s.size;
+        ctx.beginPath();
+        ctx.moveTo(s.points[0]!.x * w, s.points[0]!.y * h);
+        for (let i = 1; i < s.points.length; i++) {
+          const prev = s.points[i - 1]!; const curr = s.points[i]!;
+          const mx = (prev.x + curr.x) / 2 * w; const my = (prev.y + curr.y) / 2 * h;
+          ctx.quadraticCurveTo(prev.x * w, prev.y * h, mx, my);
         }
         ctx.stroke();
-      } else if (s.points.length >= 2) {
-        const p0 = s.points[0]!, p1 = s.points[s.points.length - 1]!;
-        if (s.tool === "line") { ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke(); }
-        else if (s.tool === "rect") { ctx.strokeRect(p0.x,p0.y,p1.x-p0.x,p1.y-p0.y); }
-        else if (s.tool === "ellipse") { ctx.beginPath(); ctx.ellipse((p0.x+p1.x)/2,(p0.y+p1.y)/2,Math.abs(p1.x-p0.x)/2,Math.abs(p1.y-p0.y)/2,0,0,Math.PI*2); ctx.stroke(); }
-        else if (s.tool === "triangle") { ctx.beginPath(); ctx.moveTo((p0.x+p1.x)/2,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p0.x,p1.y); ctx.closePath(); ctx.stroke(); }
-        else if (s.tool === "arrow") { drawArrow(ctx,p0.x,p0.y,p1.x,p1.y,s.size); }
       }
-      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
     }
-  };
-
-  const redrawCanvas = useCallback((canvasDataRaw: string | null | undefined, frameIdx: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = project?.backgroundColor || "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Grid
-    if (showGrid) {
-      ctx.strokeStyle = "rgba(128,128,128,0.2)";
-      ctx.lineWidth = 0.5;
-      const step = 40;
-      for (let x = 0; x <= canvas.width; x += step) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
-      for (let y = 0; y <= canvas.height; y += step) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
-    }
-
-    // Onion skin — prev frames
-    for (let i = 1; i <= onionFrames; i++) {
-      if (onionSkin && frameIdx - i >= 0) {
-        const pf = sortedFrames[frameIdx - i];
-        if (pf?.canvasData) {
-          const pd = parseCD(pf.canvasData);
-          ctx.globalAlpha = 0.25 / i;
-          renderStrokes(ctx, pd.strokes, `rgba(255,60,60,0.8)`);
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-    // Onion skin — next frames
-    for (let i = 1; i <= onionFrames; i++) {
-      if (onionSkin && frameIdx + i < sortedFrames.length) {
-        const nf = sortedFrames[frameIdx + i];
-        if (nf?.canvasData) {
-          const nd = parseCD(nf.canvasData);
-          ctx.globalAlpha = 0.25 / i;
-          renderStrokes(ctx, nd.strokes, `rgba(60,60,255,0.8)`);
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-
-    const data = parseCD(canvasDataRaw);
-    renderStrokes(ctx, data.strokes, null);
-  }, [project, showGrid, onionSkin, onionFrames, sortedFrames]);
-
-  useEffect(() => {
-    if (!currentFrame) return;
-    redrawCanvas(currentFrame.canvasData, currentFrame.frameIndex);
-  }, [currentFrame?.id, currentFrame?.canvasData, redrawCanvas]);
-
-  const getCanvasPt = useCallback((e: React.PointerEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
-  }, [zoom]);
-
-  const getCurrentStrokes = () => currentFrame ? parseCD(currentFrame.canvasData).strokes : [];
-
-  const saveFrameData = useCallback(async (frameId: number, strokes: Stroke[]) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const thumbnail = canvas.toDataURL("image/png", 0.4);
-    await updateFrame.mutateAsync({
-      projectId, frameId,
-      data: { canvasData: JSON.stringify({ strokes }), thumbnailData: thumbnail },
-    });
-    if (thumbnail) {
-      updateThumbnail.mutate({ projectId, data: { thumbnailData: thumbnail } });
-    }
-    queryClient.invalidateQueries({ queryKey: getListFramesQueryKey(projectId) });
-  }, [projectId, updateFrame, updateThumbnail, queryClient]);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    if (e.button === 1 || activeTool === "move") {
-      isPanningRef.current = true;
-      panStartRef.current = { x: e.clientX, y: e.clientY, px: panX, py: panY };
-      return;
-    }
-    const pt = getCanvasPt(e);
-
-    if (activeTool === "eyedropper") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const pixel = ctx.getImageData(Math.round(pt.x), Math.round(pt.y), 1, 1).data;
-      const hex = rgbToHex(pixel[0]!, pixel[1]!, pixel[2]!);
-      setActiveColor(hex);
-      setColorHistory(prev => [hex, ...prev.filter(c => c !== hex)].slice(0,12));
-      return;
-    }
-
-    if (activeTool === "text") {
-      setTextInput({ x: pt.x, y: pt.y, value: "" });
-      return;
-    }
-
-    if (activeTool === "fill") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const strokes = getCurrentStrokes();
-      undoStackRef.current.push({ strokes: [...strokes] });
-      redoStackRef.current = [];
-      floodFill(ctx, Math.round(pt.x), Math.round(pt.y), activeColor);
-      strokes.push({ tool: "fill", color: activeColor, size: 0, opacity: 100, points: [{ x: pt.x, y: pt.y, pressure: 1 }] });
-      if (currentFrame) saveFrameData(currentFrame.id, strokes);
-      return;
-    }
-
-    isDrawingRef.current = true;
-    startPtRef.current = pt;
-
-    const freehand = activeTool === "pencil" || activeTool === "pen" || activeTool === "brush" || activeTool === "eraser";
-    undoStackRef.current.push({ strokes: [...getCurrentStrokes()] });
-    redoStackRef.current = [];
-
-    if (freehand) {
-      currentStrokeRef.current = { tool: activeTool, color: activeColor, size: brushSize, opacity: brushOpacity, points: [{ x: pt.x, y: pt.y, pressure: e.pressure || 0.5 }] };
-    } else {
-      currentStrokeRef.current = { tool: activeTool, color: activeColor, size: brushSize, opacity: brushOpacity, points: [{ x: pt.x, y: pt.y, pressure: 1 }, { x: pt.x, y: pt.y, pressure: 1 }] };
-    }
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (isPanningRef.current && panStartRef.current) {
-      setPanX(panStartRef.current.px + (e.clientX - panStartRef.current.x));
-      setPanY(panStartRef.current.py + (e.clientY - panStartRef.current.y));
-      return;
-    }
-    if (!isDrawingRef.current || !currentStrokeRef.current) return;
-    const pt = getCanvasPt(e);
-    const freehand = activeTool === "pencil" || activeTool === "pen" || activeTool === "brush" || activeTool === "eraser";
-
-    if (freehand) {
-      currentStrokeRef.current.points.push({ x: pt.x, y: pt.y, pressure: e.pressure || 0.5 });
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const s = currentStrokeRef.current;
-      const pts = s.points;
-      const len = pts.length;
-      ctx.save();
-      ctx.globalAlpha = s.opacity / 100;
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.size * (pts[len-1]!.pressure || 0.5);
-      ctx.lineCap = "round"; ctx.lineJoin = "round";
-      if (s.tool === "eraser") ctx.globalCompositeOperation = "destination-out";
-      if (s.tool === "brush") { ctx.shadowBlur = s.size * 0.5; ctx.shadowColor = s.color; }
-      if (len >= 3) {
-        const xc = (pts[len-2]!.x + pts[len-1]!.x) / 2;
-        const yc = (pts[len-2]!.y + pts[len-1]!.y) / 2;
-        ctx.beginPath();
-        ctx.moveTo((pts[len-3]!.x+pts[len-2]!.x)/2, (pts[len-3]!.y+pts[len-2]!.y)/2);
-        ctx.quadraticCurveTo(pts[len-2]!.x, pts[len-2]!.y, xc, yc);
-        ctx.stroke();
-      }
-      if (symmetryMode) {
-        const W = canvas.width;
-        const mx = W - pt.x;
-        ctx.beginPath();
-        if (len >= 3) {
-          const pM = { x: W - pts[len-3]!.x, y: pts[len-3]!.y };
-          const pM2 = { x: W - pts[len-2]!.x, y: pts[len-2]!.y };
-          ctx.moveTo((pM.x+pM2.x)/2, (pM.y+pM2.y)/2);
-          ctx.quadraticCurveTo(pM2.x, pM2.y, (pM2.x+mx)/2, (pM2.y+pt.y)/2);
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    } else {
-      currentStrokeRef.current.points[currentStrokeRef.current.points.length - 1] = { x: pt.x, y: pt.y, pressure: 1 };
-      const overlay = overlayRef.current;
-      if (!overlay) return;
-      const ctx = overlay.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-      renderStrokes(ctx, [currentStrokeRef.current], null);
-    }
-  };
-
-  const handlePointerUp = () => {
-    isPanningRef.current = false; panStartRef.current = null;
-    if (!isDrawingRef.current || !currentStrokeRef.current || !currentFrame) return;
-    isDrawingRef.current = false;
-    const overlay = overlayRef.current;
-    if (overlay) { const ctx = overlay.getContext("2d"); ctx?.clearRect(0,0,overlay.width,overlay.height); }
-    const strokes = getCurrentStrokes();
-    strokes.push(currentStrokeRef.current);
-    saveFrameData(currentFrame.id, strokes);
-    currentStrokeRef.current = null; startPtRef.current = null;
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    setZoom(z => Math.max(0.1, Math.min(12, z * (e.deltaY > 0 ? 0.9 : 1.1))));
-  };
-
-  const undo = useCallback(async () => {
-    if (!undoStackRef.current.length || !currentFrame) return;
-    redoStackRef.current.push(parseCD(currentFrame.canvasData));
-    const prev = undoStackRef.current.pop()!;
-    await saveFrameData(currentFrame.id, prev.strokes);
-    redrawCanvas(JSON.stringify(prev), currentFrameIndex);
-  }, [currentFrame, currentFrameIndex, saveFrameData, redrawCanvas]);
-
-  const redo = useCallback(async () => {
-    if (!redoStackRef.current.length || !currentFrame) return;
-    undoStackRef.current.push(parseCD(currentFrame.canvasData));
-    const next = redoStackRef.current.pop()!;
-    await saveFrameData(currentFrame.id, next.strokes);
-    redrawCanvas(JSON.stringify(next), currentFrameIndex);
-  }, [currentFrame, currentFrameIndex, saveFrameData, redrawCanvas]);
-
-  const flipHorizontal = async () => {
-    if (!currentFrame || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const W = canvas.width;
-    const strokes = getCurrentStrokes().map(s => ({
-      ...s,
-      points: s.points.map(p => ({ ...p, x: W - p.x })),
-      x: s.x !== undefined ? W - s.x : undefined,
-    }));
-    if (currentFrame) await saveFrameData(currentFrame.id, strokes);
-    redrawCanvas(JSON.stringify({ strokes }), currentFrameIndex);
-  };
-
-  const commitText = async (value: string) => {
-    if (!textInput || !value.trim() || !currentFrame) { setTextInput(null); return; }
-    const strokes = getCurrentStrokes();
-    strokes.push({ tool: "text", color: activeColor, size: brushSize, opacity: brushOpacity, points: [{ x: textInput.x, y: textInput.y, pressure: 1 }], text: value, x: textInput.x, y: textInput.y });
-    await saveFrameData(currentFrame.id, strokes);
-    setTextInput(null);
-    redrawCanvas(JSON.stringify({ strokes }), currentFrameIndex);
-  };
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || textInput) return;
-      const toolMap: Record<string, Tool> = { p:"pencil", n:"pen", b:"brush", e:"eraser", f:"fill", i:"eyedropper", v:"move", l:"line", r:"rect", o:"ellipse", t:"triangle", a:"arrow", x:"text" };
-      if (!e.ctrlKey && !e.metaKey && toolMap[e.key.toLowerCase()]) setActiveTool(toolMap[e.key.toLowerCase()]!);
-      if ((e.ctrlKey||e.metaKey) && e.key==="z" && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.ctrlKey||e.metaKey) && (e.key==="y"||(e.key==="z"&&e.shiftKey))) { e.preventDefault(); redo(); }
-      if (e.key==="[") setBrushSize(s => Math.max(1, s - 2));
-      if (e.key==="]") setBrushSize(s => Math.min(200, s + 2));
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [undo, redo, textInput]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      const fps = project?.fps ?? 12;
-      playIntervalRef.current = setInterval(() => {
-        setCurrentFrameIndex(i => (i + 1) % Math.max(1, sortedFrames.length));
-      }, 1000 / fps);
-    } else {
-      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
-    }
-    return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
-  }, [isPlaying, project?.fps, sortedFrames.length]);
-
-  const addFrame = async () => {
-    await createFrame.mutateAsync({ projectId, data: { frameIndex: sortedFrames.length, duration: 1 } });
-    queryClient.invalidateQueries({ queryKey: getListFramesQueryKey(projectId) });
-    queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(projectId) });
-    setCurrentFrameIndex(sortedFrames.length);
-  };
-
-  const canvasW = project?.canvasWidth ?? 1280;
-  const canvasH = project?.canvasHeight ?? 720;
-
-  if (projectLoading || framesLoading || layersLoading) {
-    return <div className="h-screen w-screen bg-background flex items-center justify-center"><Skeleton className="h-12 w-48" /></div>;
   }
 
-  return (
-    <div className="h-screen w-screen flex flex-col bg-[hsl(240,7%,5%)] text-foreground overflow-hidden select-none">
-      {/* ── Top Toolbar ── */}
-      <div className="h-12 flex items-center px-3 gap-1.5 border-b border-border bg-card shrink-0 z-30">
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/")}><ArrowLeft className="w-4 h-4" /></Button>
-        <div className="w-px h-6 bg-border" />
-        <span className="text-sm font-semibold truncate max-w-[120px] sm:max-w-[180px]">{project?.name}</span>
-        <div className="flex-1" />
+  export default function Studio() {
+    const { id } = useParams<{ id: string }>();
+    const projectId = Number(id);
+    const [, setLocation] = useLocation();
+    const isMobile = useIsMobile();
 
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={undo}><Undo2 className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={redo}><Redo2 className="w-4 h-4" /></Button>
-        </div>
+    const [project, setProject] = useState<Project | null>(null);
+    const [frames, setFrames] = useState<Frame[]>([]);
+    const [layers, setLayers] = useState<Layer[]>([]);
+    const [currentFrameIdx, setCurrentFrameIdx] = useState(0);
+    const [currentLayerId, setCurrentLayerId] = useState<number | null>(null);
+    const [loading, setLoading] = useState(true);
 
-        <div className="hidden sm:flex items-center gap-1">
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setIsPlaying(false); setCurrentFrameIndex(0); }}><SkipBack className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentFrameIndex(i => Math.max(0, i - 1))}><ChevronLeft className="w-4 h-4" /></Button>
-          <Button variant={isPlaying ? "default" : "ghost"} size="icon" className="h-8 w-8" onClick={() => setIsPlaying(!isPlaying)}>
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentFrameIndex(i => Math.min(sortedFrames.length - 1, i + 1))}><ChevronRight className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentFrameIndex(Math.max(0, sortedFrames.length - 1))}><SkipForward className="w-4 h-4" /></Button>
-        </div>
+    // Tool state
+    const [tool, setTool] = useState<Tool>("pencil");
+    const [color, setColor] = useState("#000000");
+    const [size, setSize] = useState(4);
+    const [opacity, setOpacity] = useState(100);
+    const [zoom, setZoom] = useState(1);
 
-        <div className="w-px h-6 bg-border mx-1" />
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setLocation(`/projects/${projectId}/export`)}>
-          <Download className="w-3.5 h-3.5" /> <span className="hidden xs:inline">Export</span>
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/settings")}>
-          <Settings className="w-4 h-4" />
-        </Button>
+    // FlipaClip features
+    const [onionSkinning, setOnionSkinning] = useState(true);
+    const [onionPrev, setOnionPrev] = useState(2);
+    const [onionNext, setOnionNext] = useState(0);
+    const [showGrid, setShowGrid] = useState(false);
+    const [gridSize, setGridSize] = useState(40);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [showLayers, setShowLayers] = useState(!isMobile);
+    const [showTimeline, setShowTimeline] = useState(true);
+    const [showColorPanel, setShowColorPanel] = useState(false);
+    const [symmetryMode, setSymmetryMode] = useState(false);
+    const [lightTable, setLightTable] = useState(false);
 
-        {isMobile && (
-          <Button variant="ghost" size="icon" className="h-8 w-8 ml-1" onClick={() => setToolPanelOpen(!toolPanelOpen)}>
-            <Menu className="w-4 h-4" />
-          </Button>
-        )}
+    // Canvas state
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const overlayRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const isDrawing = useRef(false);
+    const currentStroke = useRef<Stroke | null>(null);
+    const undoStack = useRef<Stroke[][]>([]);
+    const redoStack = useRef<Stroke[][]>([]);
+    const [strokes, setStrokes] = useState<Stroke[]>([]);
+    const strokesRef = useRef<Stroke[]>([]);
+    const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Load project data
+    useEffect(() => {
+      const load = async () => {
+        const [proj, fs] = await Promise.all([db.projects.get(projectId), db.frames.listByProject(projectId)]);
+        if (!proj) { setLocation("/"); return; }
+        setProject(proj);
+        setFrames(fs);
+        if (fs.length > 0) {
+          const ls = await db.layers.listByFrame(fs[0]!.id);
+          setLayers(ls);
+          setCurrentLayerId(ls[0]?.id ?? null);
+          const data: CanvasData = safeParseCanvas(fs[0]!.canvasData);
+          setStrokes(data.strokes);
+          strokesRef.current = data.strokes;
+        }
+        setLoading(false);
+      };
+      void load();
+    }, [projectId]);
+
+    const safeParseCanvas = (raw: string): CanvasData => {
+      try { const d = JSON.parse(raw); return { strokes: Array.isArray(d.strokes) ? d.strokes : [] }; }
+      catch { return { strokes: [] }; }
+    };
+
+    const currentFrame = frames[currentFrameIdx];
+
+    // Switch frames
+    const switchFrame = useCallback(async (idx: number) => {
+      if (!currentFrame) return;
+      // Save current
+      const data = JSON.stringify({ strokes: strokesRef.current });
+      await db.frames.update(currentFrame.id, { canvasData: data });
+      const nextFrame = frames[idx];
+      if (!nextFrame) return;
+      const ls = await db.layers.listByFrame(nextFrame.id);
+      setLayers(ls);
+      setCurrentLayerId(ls[0]?.id ?? null);
+      const d = safeParseCanvas(nextFrame.canvasData);
+      setStrokes(d.strokes);
+      strokesRef.current = d.strokes;
+      undoStack.current = [];
+      redoStack.current = [];
+      setCurrentFrameIdx(idx);
+    }, [currentFrame, frames]);
+
+    // Auto-save
+    const scheduleAutoSave = useCallback(() => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = setTimeout(async () => {
+        if (!currentFrame) return;
+        const data = JSON.stringify({ strokes: strokesRef.current });
+        await db.frames.update(currentFrame.id, { canvasData: data });
+        // Generate thumbnail
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const thumb = canvas.toDataURL("image/jpeg", 0.4);
+          await db.frames.update(currentFrame.id, { thumbnail: thumb });
+          await db.projects.update(projectId, { thumbnail: thumb });
+          setFrames(prev => prev.map((f, i) => i === currentFrameIdx ? { ...f, thumbnail: thumb, canvasData: data } : f));
+        }
+      }, 800);
+    }, [currentFrame, currentFrameIdx, projectId]);
+
+    // Draw canvas
+    const drawAll = useCallback(() => {
+      const canvas = canvasRef.current;
+      if (!canvas || !project) return;
+      const ctx = canvas.getContext("2d")!;
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Background
+      ctx.fillStyle = project.backgroundColor;
+      ctx.fillRect(0, 0, w, h);
+
+      // Onion skinning — previous frames
+      if (onionSkinning) {
+        const colors = ["#ff000040", "#ff000020"];
+        for (let i = 1; i <= onionPrev; i++) {
+          const prevFrame = frames[currentFrameIdx - i];
+          if (!prevFrame) continue;
+          const prevCtx = document.createElement("canvas");
+          prevCtx.width = w; prevCtx.height = h;
+          const pc = prevCtx.getContext("2d")!;
+          const pd = safeParseCanvas(prevFrame.canvasData);
+          renderStrokes(pc, pd.strokes, w, h);
+          ctx.globalAlpha = 0.35 / i;
+          ctx.drawImage(prevCtx, 0, 0);
+        }
+        // Next frames
+        for (let i = 1; i <= onionNext; i++) {
+          const nextFrame = frames[currentFrameIdx + i];
+          if (!nextFrame) continue;
+          const nextCtx = document.createElement("canvas");
+          nextCtx.width = w; nextCtx.height = h;
+          const nc = nextCtx.getContext("2d")!;
+          const nd = safeParseCanvas(nextFrame.canvasData);
+          renderStrokes(nc, nd.strokes, w, h);
+          ctx.globalAlpha = 0.2 / i;
+          ctx.drawImage(nextCtx, 0, 0);
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Current strokes
+      renderStrokes(ctx, strokesRef.current, w, h);
+
+      // Grid
+      if (showGrid) {
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = "#888";
+        ctx.lineWidth = 1;
+        for (let x = gridSize; x < w; x += gridSize) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        }
+        for (let y = gridSize; y < h; y += gridSize) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Symmetry line
+      if (symmetryMode) {
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = "#60a5fa";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    }, [project, frames, currentFrameIdx, onionSkinning, onionPrev, onionNext, showGrid, gridSize, symmetryMode]);
+
+    useEffect(() => { drawAll(); }, [drawAll, strokes]);
+
+    // Playback
+    useEffect(() => {
+      if (isPlaying && frames.length > 1) {
+        const fps = project?.fps ?? 12;
+        playIntervalRef.current = setInterval(() => {
+          setCurrentFrameIdx(prev => {
+            const next = (prev + 1) % frames.length;
+            const frame = frames[next];
+            if (frame) {
+              const d = safeParseCanvas(frame.canvasData);
+              strokesRef.current = d.strokes;
+              setStrokes(d.strokes);
+            }
+            return next;
+          });
+        }, 1000 / fps);
+      } else {
+        if (playIntervalRef.current) { clearInterval(playIntervalRef.current); playIntervalRef.current = null; }
+      }
+      return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
+    }, [isPlaying, frames, project?.fps]);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        const k = e.key.toUpperCase();
+        if (k === " ") { e.preventDefault(); setIsPlaying(p => !p); return; }
+        if (e.ctrlKey || e.metaKey) {
+          if (k === "Z") { e.preventDefault(); handleUndo(); return; }
+          if (k === "Y") { e.preventDefault(); handleRedo(); return; }
+        }
+        const found = TOOLS.find(t => t.key === k);
+        if (found) setTool(found.id);
+        if (k === "ARROWLEFT") switchFrame(Math.max(0, currentFrameIdx - 1));
+        if (k === "ARROWRIGHT") switchFrame(Math.min(frames.length - 1, currentFrameIdx + 1));
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, [currentFrameIdx, frames.length, switchFrame]);
+
+    const getPos = (e: React.MouseEvent | React.TouchEvent): { x: number; y: number; pressure: number } => {
+      const canvas = canvasRef.current!;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      let clientX: number, clientY: number, pressure = 0.5;
+      if ("touches" in e) {
+        clientX = e.touches[0]!.clientX;
+        clientY = e.touches[0]!.clientY;
+        if ("force" in e.touches[0]!) pressure = (e.touches[0] as Touch & { force: number }).force || 0.5;
+      } else {
+        clientX = e.clientX; clientY = e.clientY;
+      }
+      return {
+        x: ((clientX - rect.left) * scaleX) / canvas.width,
+        y: ((clientY - rect.top) * scaleY) / canvas.height,
+        pressure,
+      };
+    };
+
+    const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
+      if (isPlaying || tool === "move") return;
+      e.preventDefault();
+      const pos = getPos(e);
+
+      if (tool === "eyedropper") {
+        const canvas = canvasRef.current!;
+        const ctx = canvas.getContext("2d")!;
+        const px = Math.floor(pos.x * canvas.width);
+        const py = Math.floor(pos.y * canvas.height);
+        const d = ctx.getImageData(px, py, 1, 1).data;
+        const hex = "#" + [d[0]!, d[1]!, d[2]!].map(v => v.toString(16).padStart(2, "0")).join("");
+        setColor(hex);
+        return;
+      }
+
+      if (tool === "fill") {
+        const newStroke: Stroke = { tool: "fill", color, size, opacity, points: [pos] };
+        undoStack.current.push([...strokesRef.current]);
+        redoStack.current = [];
+        strokesRef.current = [...strokesRef.current, newStroke];
+        setStrokes([...strokesRef.current]);
+        scheduleAutoSave();
+        return;
+      }
+
+      isDrawing.current = true;
+      currentStroke.current = { tool, color, size, opacity, points: [pos] };
+    };
+
+    const continueDraw = (e: React.MouseEvent | React.TouchEvent) => {
+      if (!isDrawing.current || !currentStroke.current) return;
+      e.preventDefault();
+      const pos = getPos(e);
+      currentStroke.current.points.push(pos);
+
+      // Symmetry
+      if (symmetryMode) {
+        const mirrorX = 1 - pos.x;
+        currentStroke.current.points.push({ x: mirrorX, y: pos.y, pressure: pos.pressure });
+      }
+
+      // Draw preview on overlay
+      const overlay = overlayRef.current;
+      if (overlay) {
+        const ctx = overlay.getContext("2d")!;
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        renderStrokes(ctx, [currentStroke.current], overlay.width, overlay.height);
+      }
+    };
+
+    const endDraw = () => {
+      if (!isDrawing.current || !currentStroke.current) return;
+      isDrawing.current = false;
+      undoStack.current.push([...strokesRef.current]);
+      redoStack.current = [];
+      strokesRef.current = [...strokesRef.current, currentStroke.current];
+      setStrokes([...strokesRef.current]);
+      currentStroke.current = null;
+      const overlay = overlayRef.current;
+      if (overlay) overlay.getContext("2d")!.clearRect(0, 0, overlay.width, overlay.height);
+      scheduleAutoSave();
+    };
+
+    const handleUndo = () => {
+      if (!undoStack.current.length) return;
+      redoStack.current.push([...strokesRef.current]);
+      strokesRef.current = undoStack.current.pop()!;
+      setStrokes([...strokesRef.current]);
+      scheduleAutoSave();
+    };
+
+    const handleRedo = () => {
+      if (!redoStack.current.length) return;
+      undoStack.current.push([...strokesRef.current]);
+      strokesRef.current = redoStack.current.pop()!;
+      setStrokes([...strokesRef.current]);
+      scheduleAutoSave();
+    };
+
+    const handleClearFrame = () => {
+      undoStack.current.push([...strokesRef.current]);
+      redoStack.current = [];
+      strokesRef.current = [];
+      setStrokes([]);
+      scheduleAutoSave();
+    };
+
+    const handleFlipH = () => {
+      const flipped = strokesRef.current.map(s => ({
+        ...s,
+        points: s.points.map(p => ({ ...p, x: 1 - p.x })),
+        x: s.x !== undefined ? 1 - s.x : undefined,
+      }));
+      undoStack.current.push([...strokesRef.current]);
+      redoStack.current = [];
+      strokesRef.current = flipped;
+      setStrokes(flipped);
+      scheduleAutoSave();
+    };
+
+    const handleFlipV = () => {
+      const flipped = strokesRef.current.map(s => ({
+        ...s,
+        points: s.points.map(p => ({ ...p, y: 1 - p.y })),
+        y: s.y !== undefined ? 1 - s.y : undefined,
+      }));
+      undoStack.current.push([...strokesRef.current]);
+      redoStack.current = [];
+      strokesRef.current = flipped;
+      setStrokes(flipped);
+      scheduleAutoSave();
+    };
+
+    const addFrame = async () => {
+      if (!currentFrame) return;
+      const now = new Date().toISOString();
+      const newFrameId = await db.frames.create({
+        projectId,
+        order: frames.length,
+        duration: Math.round(1000 / (project?.fps ?? 12)),
+        canvasData: "{}",
+        thumbnail: "",
+        createdAt: now,
+      });
+      await db.layers.create({ frameId: newFrameId, projectId, name: "Layer 1", order: 0, visible: true, locked: false, opacity: 100, blendMode: "normal", canvasData: "{}", createdAt: now });
+      const newFrames = await db.frames.listByProject(projectId);
+      setFrames(newFrames);
+      await switchFrame(newFrames.findIndex(f => f.id === newFrameId));
+    };
+
+    const deleteFrame = async (idx: number) => {
+      if (frames.length <= 1) return;
+      const frame = frames[idx];
+      if (!frame) return;
+      await db.frames.delete(frame.id);
+      const newFrames = await db.frames.listByProject(projectId);
+      setFrames(newFrames);
+      const newIdx = Math.min(idx, newFrames.length - 1);
+      await switchFrame(newIdx);
+    };
+
+    const duplicateFrame = async (idx: number) => {
+      const frame = frames[idx];
+      if (!frame) return;
+      // Save current first
+      const data = JSON.stringify({ strokes: strokesRef.current });
+      await db.frames.update(frame.id, { canvasData: data });
+      await db.frames.duplicate(frame.id);
+      const newFrames = await db.frames.listByProject(projectId);
+      setFrames(newFrames);
+    };
+
+    const addLayer = async () => {
+      if (!currentFrame) return;
+      const now = new Date().toISOString();
+      const newLayerId = await db.layers.create({
+        frameId: currentFrame.id, projectId, name: `Layer ${layers.length + 1}`,
+        order: layers.length, visible: true, locked: false, opacity: 100, blendMode: "normal", canvasData: "{}", createdAt: now,
+      });
+      const ls = await db.layers.listByFrame(currentFrame.id);
+      setLayers(ls);
+      setCurrentLayerId(newLayerId);
+    };
+
+    const toggleLayerVisibility = async (layerId: number, visible: boolean) => {
+      await db.layers.update(layerId, { visible });
+      setLayers(prev => prev.map(l => l.id === layerId ? { ...l, visible } : l));
+    };
+
+    const toggleLayerLock = async (layerId: number, locked: boolean) => {
+      await db.layers.update(layerId, { locked });
+      setLayers(prev => prev.map(l => l.id === layerId ? { ...l, locked } : l));
+    };
+
+    const deleteLayer = async (layerId: number) => {
+      if (layers.length <= 1) return;
+      await db.layers.delete(layerId);
+      const ls = await db.layers.listByFrame(currentFrame?.id ?? 0);
+      setLayers(ls);
+      if (currentLayerId === layerId) setCurrentLayerId(ls[0]?.id ?? null);
+    };
+
+    if (loading) return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#050508]">
+        <div className="w-8 h-8 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
       </div>
+    );
 
-      {/* ── Main Area ── */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left: Tool Icons & Options (Floating on mobile) */}
-        <div className={cn(
-          "z-20 flex border-r border-border bg-card shrink-0 transition-all duration-300",
-          isMobile ? "absolute left-0 top-0 bottom-0 shadow-2xl" : "relative",
-          toolPanelOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0 sm:w-12"
-        )}>
-          <div className="w-12 flex flex-col items-center py-2 gap-0.5 border-r border-border overflow-y-auto">
-            {TOOLS.map((t) => (
-              <button
-                key={t.id}
-                className={cn(
-                  "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0",
-                  activeTool === t.id ? "bg-primary text-primary-foreground shadow-md shadow-primary/30" : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                )}
-                onClick={() => { setActiveTool(t.id); if (isMobile && !["pencil", "pen", "brush", "eraser"].includes(t.id)) {} }}
-              >
-                {t.icon}
-              </button>
-            ))}
-            <div className="w-8 border-t border-border my-1.5" />
-            <label className="relative cursor-pointer w-9 h-9 rounded-lg border-2 border-border hover:border-primary/50 transition-colors overflow-hidden" style={{ backgroundColor: activeColor }}>
-              <input type="color" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" value={activeColor} onChange={e => { setActiveColor(e.target.value); setColorHistory(p => [e.target.value, ...p.filter(c => c !== e.target.value)].slice(0,12)); }} />
-            </label>
-            {isMobile && (
-              <Button variant="ghost" size="icon" className="mt-auto mb-2" onClick={() => setToolPanelOpen(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-            )}
+    if (!project) return null;
+
+    const canvasW = project.width;
+    const canvasH = project.height;
+
+    return (
+      <div className="h-screen w-screen bg-[#0a0a0f] flex flex-col overflow-hidden text-white select-none">
+        {/* Top bar */}
+        <div className="h-12 border-b border-white/10 bg-[#111118] flex items-center px-3 gap-2 shrink-0">
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => setLocation("/")}>
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-sm font-semibold truncate max-w-32 md:max-w-48">{project.name}</span>
+
+          <div className="flex-1" />
+
+          {/* Playback */}
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => switchFrame(0)}>
+                  <SkipBack className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>First Frame</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => switchFrame(Math.max(0, currentFrameIdx - 1))}>
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Previous Frame (←)</TooltipContent>
+            </Tooltip>
+            <Button
+              size="icon"
+              className="h-8 w-8 bg-violet-600 hover:bg-violet-500 text-white border-0"
+              onClick={() => setIsPlaying(p => !p)}
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => switchFrame(Math.min(frames.length - 1, currentFrameIdx + 1))}>
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Next Frame (→)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => switchFrame(frames.length - 1)}>
+                  <SkipForward className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Last Frame</TooltipContent>
+            </Tooltip>
+            <span className="text-xs text-white/40 tabular-nums min-w-12 text-center">{currentFrameIdx + 1}/{frames.length}</span>
           </div>
 
-          {/* Options panel */}
-          <div className={cn("w-44 flex flex-col gap-3 p-3 overflow-y-auto text-[11px]", !toolPanelOpen && "hidden sm:hidden")}>
-            <div>
-              <div className="text-muted-foreground uppercase tracking-widest mb-1.5 font-medium">Size <span className="text-primary float-right">{brushSize}px</span></div>
-              <Slider value={[brushSize]} min={1} max={200} step={1} onValueChange={([v]) => v !== undefined && setBrushSize(v)} />
-            </div>
-            <div>
-              <div className="text-muted-foreground uppercase tracking-widest mb-1.5 font-medium">Opacity <span className="text-primary float-right">{brushOpacity}%</span></div>
-              <Slider value={[brushOpacity]} min={1} max={100} step={1} onValueChange={([v]) => v !== undefined && setBrushOpacity(v)} />
-            </div>
-            <div>
-              <div className="text-muted-foreground uppercase tracking-widest mb-1.5 font-medium">Colors</div>
-              <div className="grid grid-cols-4 gap-1">
+          <div className="flex-1" />
+
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={handleUndo}>
+                  <Undo2 className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={handleRedo}>
+                  <Redo2 className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Redo (Ctrl+Y)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className={cn("h-8 w-8 hover:bg-white/5", onionSkinning ? "text-fuchsia-400" : "text-white/40")} onClick={() => setOnionSkinning(p => !p)}>
+                  <Droplets className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Onion Skinning</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className={cn("h-8 w-8 hover:bg-white/5", showGrid ? "text-cyan-400" : "text-white/40")} onClick={() => setShowGrid(p => !p)}>
+                  <Grid3X3 className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Toggle Grid</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className={cn("h-8 w-8 hover:bg-white/5", symmetryMode ? "text-yellow-400" : "text-white/40")} onClick={() => setSymmetryMode(p => !p)}>
+                  <FlipHorizontal2 className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Symmetry Mode</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/5" onClick={() => setLocation(`/projects/${projectId}/export`)}>
+                  <Download className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className={cn("h-8 w-8 hover:bg-white/5", showLayers ? "text-violet-400" : "text-white/40")} onClick={() => setShowLayers(p => !p)}>
+                  <Layers className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Layers Panel</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Main area */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left toolbar */}
+          <div className="w-12 bg-[#111118] border-r border-white/10 flex flex-col items-center py-2 gap-1 overflow-y-auto shrink-0">
+            {TOOLS.map(t => (
+              <Tooltip key={t.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    className={cn(
+                      "w-9 h-9 rounded-lg flex items-center justify-center transition-colors",
+                      tool === t.id ? "bg-violet-600 text-white" : "text-white/40 hover:text-white hover:bg-white/5"
+                    )}
+                    onClick={() => setTool(t.id)}
+                  >
+                    {t.icon}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{t.label} ({t.key})</TooltipContent>
+              </Tooltip>
+            ))}
+
+            <div className="w-8 h-px bg-white/10 my-1" />
+
+            {/* Color swatch */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="w-9 h-9 rounded-lg border-2 border-white/20 hover:border-violet-500 transition-colors relative"
+                  style={{ backgroundColor: color }}
+                  onClick={() => setShowColorPanel(p => !p)}
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right">Color</TooltipContent>
+            </Tooltip>
+
+            <div className="w-8 h-px bg-white/10 my-1" />
+
+            {/* Flip H */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button className="w-9 h-9 rounded-lg text-white/40 hover:text-white hover:bg-white/5 flex items-center justify-center" onClick={handleFlipH}>
+                  <FlipHorizontal2 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Flip Horizontal</TooltipContent>
+            </Tooltip>
+
+            {/* Clear */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button className="w-9 h-9 rounded-lg text-red-400/60 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center" onClick={handleClearFrame}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Clear Frame</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Color panel (popup) */}
+          {showColorPanel && (
+            <div className="absolute left-14 top-1/3 z-30 bg-[#1a1a24] border border-white/10 rounded-xl p-3 shadow-2xl w-44">
+              <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-full h-10 rounded-lg cursor-pointer border border-white/10 bg-transparent mb-2" />
+              <div className="grid grid-cols-6 gap-1">
                 {PRESET_COLORS.map(c => (
-                  <button key={c} className={cn("w-7 h-7 rounded border-2 transition-transform hover:scale-110", c === activeColor ? "border-primary" : "border-transparent")} style={{ backgroundColor: c }} onClick={() => setActiveColor(c)} />
+                  <button key={c} className={cn("w-6 h-6 rounded-md border-2 transition-transform hover:scale-110", color === c ? "border-violet-400" : "border-transparent")} style={{ backgroundColor: c }} onClick={() => setColor(c)} />
                 ))}
               </div>
-            </div>
-            <div className="space-y-1">
-              {[
-                { label: "Onion Skin", val: onionSkin, set: setOnionSkin, icon: <Film className="w-3 h-3" /> },
-                { label: "Grid", val: showGrid, set: setShowGrid, icon: <Grid3X3 className="w-3 h-3" /> },
-              ].map(({ label, val, set, icon }) => (
-                <button key={label} className={cn("flex items-center gap-2 w-full px-2 py-1.5 rounded-lg transition-colors", val ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-accent")} onClick={() => set(!val)}>
-                  {icon} {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Canvas Area */}
-        <div className="flex-1 relative overflow-hidden bg-[hsl(240,7%,7%)] flex flex-col" onWheel={handleWheel} ref={containerRef}>
-          {/* Checkerboard background */}
-          <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(45deg,hsl(240,7%,11%) 25%,transparent 25%),linear-gradient(-45deg,hsl(240,7%,11%) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,hsl(240,7%,11%) 75%),linear-gradient(-45deg,transparent 75%,hsl(240,7%,11%) 75%)", backgroundSize: "20px 20px", backgroundPosition: "0 0,0 10px,10px -10px,-10px 0px" }} />
-
-          {/* The Canvas Container */}
-          <div className="flex-1 relative overflow-hidden touch-none" style={{ cursor: activeTool === "move" ? "grab" : "crosshair" }}>
-            <div className="absolute" style={{ transform: `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) scale(${zoom})`, top: "50%", left: "50%", transformOrigin: "center" }}>
-              <div className="shadow-2xl shadow-black/60 relative" style={{ width: canvasW, height: canvasH, backgroundColor: project?.backgroundColor || "#ffffff" }}>
-                <canvas ref={canvasRef} width={canvasW} height={canvasH} className="absolute inset-0 block" />
-                <canvas
-                  ref={overlayRef}
-                  width={canvasW}
-                  height={canvasH}
-                  className="absolute inset-0 block touch-none"
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerLeave={handlePointerUp}
-                />
-                {textInput && (
-                  <input
-                    autoFocus type="text"
-                    className="absolute bg-transparent border-none outline-none"
-                    style={{ left: textInput.x, top: textInput.y - brushSize * 3, fontSize: `${Math.max(brushSize * 3, 12)}px`, color: activeColor, fontFamily: "Inter, sans-serif", minWidth: 80 }}
-                    value={textInput.value}
-                    onChange={e => setTextInput({ ...textInput, value: e.target.value })}
-                    onKeyDown={e => { if (e.key === "Enter") commitText(textInput.value); if (e.key === "Escape") setTextInput(null); }}
-                    onBlur={() => commitText(textInput.value)}
-                  />
-                )}
+              <div className="mt-2">
+                <p className="text-xs text-white/40 mb-1">Brush Size: {size}px</p>
+                <Slider value={[size]} min={1} max={50} step={1} onValueChange={([v]) => setSize(v!)} className="[&_[role=slider]]:bg-violet-500" />
+              </div>
+              <div className="mt-2">
+                <p className="text-xs text-white/40 mb-1">Opacity: {opacity}%</p>
+                <Slider value={[opacity]} min={1} max={100} step={1} onValueChange={([v]) => setOpacity(v!)} className="[&_[role=slider]]:bg-violet-500" />
               </div>
             </div>
+          )}
+
+          {/* Canvas area */}
+          <div ref={containerRef} className="flex-1 relative overflow-hidden bg-[#1a1a22] flex items-center justify-center" onClick={() => setShowColorPanel(false)}>
+            <div style={{ transform: `scale(${zoom})`, transformOrigin: "center", transition: "transform 0.15s" }} className="relative shadow-2xl shadow-black/50">
+              <canvas
+                ref={canvasRef}
+                width={canvasW}
+                height={canvasH}
+                className="block"
+                style={{ width: "min(calc(100vw - 200px), calc(100vh - 200px))", height: "auto", imageRendering: "pixelated", cursor: tool === "move" ? "grab" : tool === "eyedropper" ? "crosshair" : "crosshair" }}
+                onMouseDown={startDraw}
+                onMouseMove={continueDraw}
+                onMouseUp={endDraw}
+                onMouseLeave={endDraw}
+                onTouchStart={startDraw}
+                onTouchMove={continueDraw}
+                onTouchEnd={endDraw}
+              />
+              <canvas
+                ref={overlayRef}
+                width={canvasW}
+                height={canvasH}
+                className="absolute inset-0 pointer-events-none"
+                style={{ width: "min(calc(100vw - 200px), calc(100vh - 200px))", height: "auto" }}
+              />
+            </div>
+
+            {/* Zoom controls */}
+            <div className="absolute bottom-4 right-4 flex items-center gap-1 bg-[#111118]/90 backdrop-blur-sm rounded-lg p-1 border border-white/10">
+              <button className="w-7 h-7 rounded flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setZoom(z => Math.max(0.25, z - 0.25))}>
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <button className="text-xs text-white/60 w-10 text-center hover:text-white transition-colors" onClick={() => setZoom(1)}>
+                {Math.round(zoom * 100)}%
+              </button>
+              <button className="w-7 h-7 rounded flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors" onClick={() => setZoom(z => Math.min(4, z + 0.25))}>
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          {/* Mobile Playback Controls (Bottom) */}
-          {isMobile && (
-            <div className="h-14 border-t border-border bg-card flex items-center justify-around px-4 z-10">
-              <Button variant="ghost" size="icon" onClick={() => setCurrentFrameIndex(i => Math.max(0, i - 1))}><ChevronLeft className="w-5 h-5" /></Button>
-              <Button variant={isPlaying ? "default" : "outline"} size="icon" className="h-10 w-10 rounded-full" onClick={() => setIsPlaying(!isPlaying)}>
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => setCurrentFrameIndex(i => Math.min(sortedFrames.length - 1, i + 1))}><ChevronRight className="w-5 h-5" /></Button>
-              <Button variant="ghost" size="icon" onClick={addFrame}><Plus className="w-5 h-5" /></Button>
+          {/* Right: layers panel */}
+          {showLayers && (
+            <div className="w-52 bg-[#111118] border-l border-white/10 flex flex-col shrink-0">
+              <div className="h-10 border-b border-white/10 flex items-center px-3 justify-between">
+                <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Layers</span>
+                <button className="w-6 h-6 rounded flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10" onClick={addLayer}>
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+                {[...layers].reverse().map(layer => (
+                  <div
+                    key={layer.id}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer transition-colors text-sm group",
+                      currentLayerId === layer.id ? "bg-violet-600/20 border border-violet-500/30" : "hover:bg-white/5 border border-transparent"
+                    )}
+                    onClick={() => setCurrentLayerId(layer.id)}
+                  >
+                    <div className="w-6 h-6 rounded bg-white/10 border border-white/10 shrink-0" />
+                    <span className="flex-1 text-xs truncate text-white/80">{layer.name}</span>
+                    <button className="text-white/30 hover:text-white/80 opacity-0 group-hover:opacity-100 transition-all" onClick={e => { e.stopPropagation(); toggleLayerVisibility(layer.id, !layer.visible); }}>
+                      {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                    </button>
+                    <button className="text-white/30 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all" onClick={e => { e.stopPropagation(); void deleteLayer(layer.id); }}>
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Right: Layers (Hidden on mobile by default) */}
-        {!isMobile && (
-          <div className={cn("flex flex-col border-l border-border bg-card shrink-0 transition-all", layerPanelOpen ? "w-52" : "w-10")}>
-            <button className="h-10 flex items-center justify-between px-3 border-b border-border text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => setLayerPanelOpen(!layerPanelOpen)}>
-              {layerPanelOpen ? <><span className="flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" />Layers</span><ChevronDown className="w-3.5 h-3.5" /></> : <Layers className="w-4 h-4 mx-auto" />}
-            </button>
-            {layerPanelOpen && (
-              <div className="flex-1 overflow-y-auto">
-                {sortedLayers.map(layer => (
-                  <div key={layer.id} className={cn("flex items-center gap-1.5 px-2 py-2 border-b border-border cursor-pointer hover:bg-accent/50", activeLayerId === layer.id ? "bg-primary/10 border-l-2 border-l-primary" : "")} onClick={() => setActiveLayerId(layer.id)}>
-                    <span className="text-xs truncate flex-1">{layer.name}</span>
+        {/* Bottom timeline */}
+        {showTimeline && (
+          <div className="h-24 bg-[#111118] border-t border-white/10 flex flex-col shrink-0">
+            <div className="h-8 border-b border-white/10 flex items-center px-3 gap-2">
+              <span className="text-xs text-white/40 font-medium">Timeline</span>
+              <span className="text-xs text-white/30">·</span>
+              <span className="text-xs text-white/40">{project.fps} fps</span>
+              <span className="text-xs text-white/30">·</span>
+              <span className="text-xs text-white/40">{frames.length} frames</span>
+              <div className="flex-1" />
+              <button className="h-6 px-2 rounded text-xs bg-violet-600/20 text-violet-400 hover:bg-violet-600/30 transition-colors flex items-center gap-1" onClick={addFrame}>
+                <Plus className="w-3 h-3" /> Add Frame
+              </button>
+            </div>
+            <div className="flex-1 flex items-center gap-1.5 px-3 overflow-x-auto">
+              {frames.map((frame, idx) => (
+                <div
+                  key={frame.id}
+                  className={cn(
+                    "relative shrink-0 w-14 h-12 rounded-lg border-2 cursor-pointer overflow-hidden transition-all group",
+                    currentFrameIdx === idx ? "border-violet-500 ring-1 ring-violet-500/50" : "border-white/10 hover:border-white/30"
+                  )}
+                  onClick={() => !isPlaying && switchFrame(idx)}
+                >
+                  {frame.thumbnail ? (
+                    <img src={frame.thumbnail} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                      <span className="text-white/20 text-xs">{idx + 1}</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-0.5">
+                    <button className="w-5 h-5 rounded flex items-center justify-center text-white hover:bg-white/20 transition-colors" onClick={e => { e.stopPropagation(); void duplicateFrame(idx); }}>
+                      <Copy className="w-2.5 h-2.5" />
+                    </button>
+                    <button className="w-5 h-5 rounded flex items-center justify-center text-red-400 hover:bg-red-500/20 transition-colors" onClick={e => { e.stopPropagation(); void deleteFrame(idx); }}>
+                      <Trash2 className="w-2.5 h-2.5" />
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                  {currentFrameIdx === idx && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-violet-500" />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
+
+        <Watermark />
       </div>
+    );
+  }
 
-      {/* ── Timeline (Bottom) ── */}
-      {!isMobile && (
-        <div className="h-24 border-t border-border bg-card flex flex-col shrink-0 z-20">
-          <div className="flex-1 flex items-center gap-2 px-4 overflow-x-auto py-2">
-            {sortedFrames.map((f, i) => (
-              <div
-                key={f.id}
-                className={cn(
-                  "h-16 aspect-video rounded border-2 shrink-0 cursor-pointer transition-all relative group overflow-hidden",
-                  currentFrameIndex === i ? "border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/40"
-                )}
-                onClick={() => setCurrentFrameIndex(i)}
-              >
-                {f.thumbnailData ? <img src={f.thumbnailData} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground">{i+1}</div>}
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">{i+1}</div>
-              </div>
-            ))}
-            <button className="h-16 aspect-video rounded border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors shrink-0" onClick={addFrame}>
-              <Plus className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      <Watermark />
-    </div>
-  );
-}
+  // Need this for the ArrowRight import
+  function ArrowRight(props: React.SVGProps<SVGSVGElement>) {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
+      </svg>
+    );
+  }
+  
