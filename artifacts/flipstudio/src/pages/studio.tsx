@@ -1197,10 +1197,10 @@ export default function Studio() {
   // canvasDisplayW is computed by the JS resize effect above — avoids CSS min() Android bug
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none"
+    <div className="w-screen flex flex-col bg-[#060610] text-white overflow-hidden select-none page-enter" style={{ height: "100dvh" }}
       onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* ── Top Bar ── */}
-        <div className="h-12 flex items-center border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20">
+        <div className="h-10 flex items-center border-b border-white/[0.06] bg-[#0b0b18] shrink-0 z-20">
 
           {/* Fixed LEFT: back + project name */}
           <div className="flex items-center gap-1 px-1 shrink-0">
@@ -1269,11 +1269,11 @@ export default function Studio() {
         {/* ── Tool Bar ── */}
         <div className="w-13 flex flex-col items-center bg-[#0b0b18] border-r border-white/[0.06] shrink-0 overflow-y-auto py-1" style={{ width: 52 }}>
           {/* Group: draw */}
-          <div className="w-full flex flex-col items-center gap-0.5 px-1 mb-1">
+          <div className="w-full flex flex-col items-center gap-0 px-1 mb-0.5">
             {ALL_TOOLS.filter(t => t.group === "draw").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1282,14 +1282,14 @@ export default function Studio() {
             ))}
           </div>
 
-          <div className="w-7 h-px bg-white/[0.06] mb-1"/>
+          <div className="w-6 h-px bg-white/[0.06] mb-0.5"/>
 
           {/* Group: nav */}
-          <div className="w-full flex flex-col items-center gap-0.5 px-1 mb-1">
+          <div className="w-full flex flex-col items-center gap-0 px-1 mb-0.5">
             {ALL_TOOLS.filter(t => t.group === "nav").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1298,14 +1298,14 @@ export default function Studio() {
             ))}
           </div>
 
-          <div className="w-7 h-px bg-white/[0.06] mb-1"/>
+          <div className="w-6 h-px bg-white/[0.06] mb-0.5"/>
 
           {/* Group: shape */}
-          <div className="w-full flex flex-col items-center gap-0.5 px-1 mb-1">
+          <div className="w-full flex flex-col items-center gap-0 px-1 mb-0.5">
             {ALL_TOOLS.filter(t => t.group === "shape").map(t => (
               <Tooltip key={t.id}>
                 <TooltipTrigger asChild>
-                  <button className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                  <button className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-all",
                     tool === t.id ? "bg-violet-600 text-white shadow-lg shadow-violet-900/40" : "text-white/30 hover:text-white hover:bg-white/[0.06]")}
                     onClick={() => setTool(t.id)}>{t.icon}</button>
                 </TooltipTrigger>
@@ -1314,7 +1314,7 @@ export default function Studio() {
             ))}
           </div>
 
-          <div className="w-7 h-px bg-white/[0.06] mb-1"/>
+          <div className="w-6 h-px bg-white/[0.06] mb-0.5"/>
 
           {/* Color swatch — tap to open full color panel */}
             <Tooltip>
@@ -1337,7 +1337,7 @@ export default function Studio() {
               ))}
             </div>
 
-            <div className="w-7 h-px bg-white/[0.06] my-1"/>
+            <div className="w-6 h-px bg-white/[0.06] my-0.5"/>
 
                       {/* Quick actions */}
           <Tooltip><TooltipTrigger asChild>
@@ -1370,7 +1370,7 @@ export default function Studio() {
             </button>
           </TooltipTrigger><TooltipContent side="right">Clear Layer</TooltipContent></Tooltip>
 
-          <div className="w-7 h-px bg-white/[0.06] my-1"/>
+          <div className="w-6 h-px bg-white/[0.06] my-0.5"/>
 
           {/* Brush settings toggle */}
           <Tooltip><TooltipTrigger asChild>
@@ -1390,7 +1390,7 @@ export default function Studio() {
             </button>
           </TooltipTrigger><TooltipContent side="right">Layers Panel (swipe)</TooltipContent></Tooltip>
 
-          <div className="w-7 h-px bg-white/[0.06] my-1"/>
+          <div className="w-6 h-px bg-white/[0.06] my-0.5"/>
 
           {/* Reference image */}
           <Tooltip><TooltipTrigger asChild>
