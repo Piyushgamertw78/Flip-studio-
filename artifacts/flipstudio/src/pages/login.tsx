@@ -118,7 +118,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#060610] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className=  page-enter-upmin-h-screen bg-[#060610] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Aurora background */}
       <div className="aurora-bg">
         <div className="aurora-blob aurora-blob-1"/>
