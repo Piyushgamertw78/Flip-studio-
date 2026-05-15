@@ -152,7 +152,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#06060f] text-white flex flex-col">
+    <div className="min-h-screen page-enter-left bg-[#06060f] text-white flex flex-col">
       {/* Aurora */}
       <div className="aurora-bg pointer-events-none opacity-40">
         <div className="aurora-blob aurora-blob-1"/>
