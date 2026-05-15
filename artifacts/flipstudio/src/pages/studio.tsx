@@ -192,33 +192,54 @@ export default function Studio() {
 
   // ─── Load project ───────────────────────────────────────────────────────────
   useEffect(() => {
+    let unmounted = false;
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+
     const load = async () => {
-      // Safety timeout — if DB hangs for any reason, don't leave user on black screen
-      const timeout = setTimeout(() => { setLoading(false); setLocation("/"); }, 12000);
+      // Safety: if IndexedDB hangs (blocked connection, first install, etc.), navigate back after 10s
+      safetyTimer = setTimeout(() => {
+        if (!unmounted) { setLoading(false); setLocation("/"); }
+      }, 10000);
+
       try {
-        const [proj, fs] = await Promise.all([db.projects.get(projectId), db.frames.listByProject(projectId)]);
-        clearTimeout(timeout);
+        const [proj, fs] = await Promise.all([
+          db.projects.get(projectId),
+          db.frames.listByProject(projectId),
+        ]);
+
+        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+        if (unmounted) return; // user navigated away — don't update state
+
         if (!proj) { setLoading(false); setLocation("/"); return; }
         setProject(proj);
         setFrames(fs);
         setProjectNameVal(proj.name);
         if (proj.audioTrack) setAudioURL(proj.audioTrack);
+
         if (fs.length > 0) {
-          const ls = await db.layers.listByFrame(fs[0]!.id);
+          // Fetch layers — gracefully degrade if this fails
+          const ls = await db.layers.listByFrame(fs[0]!.id).catch((): Layer[] => []);
+          if (unmounted) return;
           setLayers(ls);
           const map = new Map<number, Stroke[]>();
           for (const l of ls) map.set(l.id, safeParseCanvas(l.canvasData).strokes);
           layerStrokes.current = map;
           setCurrentLayerId(ls[0]?.id ?? null);
         }
-        setLoading(false);
+        if (!unmounted) setLoading(false);
       } catch {
-        clearTimeout(timeout);
-        setLoading(false);
-        setLocation("/");
+        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+        if (!unmounted) { setLoading(false); setLocation("/"); }
       }
     };
+
     void load();
+
+    // Cleanup: mark unmounted, cancel safety timer so it can't fire setLocation on another page
+    return () => {
+      unmounted = true;
+      if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+    };
   }, [projectId]);
 
   // ─── Canvas display size (JS-calculated — CSS min() not supported on older Android WebViews) ───
@@ -235,6 +256,18 @@ export default function Studio() {
     window.addEventListener("resize", compute);
     return () => window.removeEventListener("resize", compute);
   }, [showLayersPanel, CW, CH]);
+
+  // ─── Unmount cleanup — releases canvas GPU memory, prevents Android OOM crash ─
+  useEffect(() => {
+    return () => {
+      // Clear any pending auto-save
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+      // Shrink canvases to 1×1 to release backing store memory immediately
+      // This prevents the "out of memory" crash when pressing back on Android
+      try { const c = canvasRef.current; if (c) { c.width = 1; c.height = 1; } } catch {}
+      try { const o = overlayRef.current; if (o) { o.width = 1; o.height = 1; } } catch {}
+    };
+  }, []);
 
   const currentFrame   = frames[currentFrameIdx];
   const currentLayer   = layers.find(l => l.id === currentLayerId);
