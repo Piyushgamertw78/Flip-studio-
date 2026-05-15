@@ -36,7 +36,7 @@ jobs:
           restore-keys: pnpm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       # ── 3. Build web app ─────────────────────────────────────────────────────
       - name: Build web app (Vite)
@@ -52,12 +52,12 @@ jobs:
           ls -lh artifacts/flipstudio/dist/public/
           echo "✅ Web build OK"
 
-      # ── 4. Java 17 ───────────────────────────────────────────────────────────
-      - name: Setup Java 17
+      # ── 4. Java 21 ───────────────────────────────────────────────────────────
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       # ── 5. Android SDK 35 ────────────────────────────────────────────────────
       - name: Setup Android SDK
@@ -73,9 +73,11 @@ jobs:
           echo "✅ Android SDK 35 installed"
 
       # ── 6. Capacitor sync ────────────────────────────────────────────────────
-      - name: Sync web assets into Android project
+      - name: Update and Sync web assets into Android project
         working-directory: artifacts/flipstudio
-        run: ./node_modules/.bin/cap sync android
+        run: |
+          ./node_modules/.bin/cap update android
+          ./node_modules/.bin/cap sync android
 
       # ── 7. Write local.properties ────────────────────────────────────────────
       - name: Write local.properties
