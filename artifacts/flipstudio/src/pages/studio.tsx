@@ -1435,6 +1435,32 @@ export default function Studio() {
     setEditingFrameLabel(null);
   }, [frames]);
 
+  const updateFrameHold = useCallback(async (frameIdx: number, hold: number) => {
+    const frame = frames[frameIdx];
+    if (!frame) return;
+    const h = Math.max(1, Math.min(99, hold));
+    await db.frames.update(frame.id, { hold: h });
+    setFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, hold: h } : f));
+  }, [frames]);
+
+  const copyLayerToFrame = useCallback(async (targetFrameIdx: number) => {
+    if (!currentLayerId || !currentLayer) return;
+    const targetFrame = frames[targetFrameIdx];
+    if (!targetFrame) return;
+    const strokes = layerStrokes.current.get(currentLayerId) ?? [];
+    const existingLayers = await db.layers.listByFrame(targetFrame.id);
+    const maxOrder = existingLayers.reduce((m, l) => Math.max(m, l.order), 0);
+    await db.layers.create({
+      frameId: targetFrame.id, projectId, name: `${currentLayer.name} (copy)`,
+      order: maxOrder + 1, visible: true, locked: false,
+      opacity: currentLayer.opacity, blendMode: currentLayer.blendMode,
+      canvasData: JSON.stringify({ strokes }),
+    });
+    toast({ title: `Layer copied to frame ${targetFrameIdx + 1}` });
+  }, [currentLayerId, currentLayer, frames, projectId, layerStrokes]);
+
+  const [copyToFrameOpen, setCopyToFrameOpen] = useState(false);
+
   // ─── Background color ─────────────────────────────────────────────────────────
   const changeBgColor = useCallback(async (newColor: string) => {
     if (!project) return;
@@ -2587,6 +2613,30 @@ export default function Studio() {
               }}}>
               Keep only current
             </button>
+            <div className="w-px h-5 bg-white/[0.07] mx-1"/>
+            {/* Frame hold — repeat current frame N times in export/playback */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-white/25">Hold:</span>
+              <button className="text-[10px] text-white/30 hover:text-white px-1"
+                onClick={() => void updateFrameHold(currentFrameIdx, (frames[currentFrameIdx]?.hold ?? 1) - 1)}>−</button>
+              <span className="text-[10px] text-cyan-400/70 tabular-nums w-4 text-center">{frames[currentFrameIdx]?.hold ?? 1}</span>
+              <button className="text-[10px] text-white/30 hover:text-white px-1"
+                onClick={() => void updateFrameHold(currentFrameIdx, (frames[currentFrameIdx]?.hold ?? 1) + 1)}>+</button>
+            </div>
+            {/* Copy layer to another frame */}
+            {frames.length > 1 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-white/25">Copy layer →</span>
+                <select className="bg-white/[0.06] border border-white/10 rounded text-[10px] text-white/50 px-1 py-0.5 outline-none"
+                  defaultValue=""
+                  onChange={e => { const idx = Number(e.target.value); if (!isNaN(idx) && idx !== currentFrameIdx) void copyLayerToFrame(idx); (e.target as HTMLSelectElement).value = ""; }}>
+                  <option value="" disabled>frame…</option>
+                  {frames.map((_, i) => i !== currentFrameIdx && (
+                    <option key={i} value={i}>Frame {i + 1}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 
