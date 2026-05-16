@@ -1866,6 +1866,43 @@ export default function Studio() {
                   ))}
                 </div>
               </div>
+              {/* Color harmony — complementary + triadic */}
+              {(() => {
+                const hex2hsl = (hex: string): [number,number,number] => {
+                  const r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
+                  const max=Math.max(r,g,b), min=Math.min(r,g,b), l=(max+min)/2;
+                  if (max===min) return [0,0,l];
+                  const d=max-min, s=l>0.5?d/(2-max-min):d/(max+min);
+                  let h=0; if(max===r) h=(g-b)/d+(g<b?6:0); else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4; h/=6;
+                  return [h,s,l];
+                };
+                const hsl2hex = (h: number, s: number, l: number): string => {
+                  const hue2rgb = (p: number, q: number, t: number) => { let tt=t<0?t+1:t>1?t-1:t; return tt<1/6?p+(q-p)*6*tt:tt<1/2?q:tt<2/3?p+(q-p)*(2/3-tt)*6:p; };
+                  const q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+                  return '#' + [hue2rgb(p,q,h+1/3), hue2rgb(p,q,h), hue2rgb(p,q,h-1/3)].map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('');
+                };
+                const [h,s,l] = hex2hsl(color);
+                const harmonyColors = [
+                  { label: "Comp", c: hsl2hex((h+0.5)%1, s, l) },
+                  { label: "Tri1", c: hsl2hex((h+1/3)%1, s, l) },
+                  { label: "Tri2", c: hsl2hex((h+2/3)%1, s, l) },
+                  { label: "Ana1", c: hsl2hex((h+1/12)%1, s, l) },
+                  { label: "Ana2", c: hsl2hex((h-1/12+1)%1, s, l) },
+                  { label: "Split1", c: hsl2hex((h+5/12)%1, s, l) },
+                ];
+                return (
+                  <div className="mt-2 pt-2 border-t border-white/[0.06]">
+                    <span className="text-[9px] text-white/20 uppercase tracking-wider font-bold block mb-1.5">Harmony</span>
+                    <div className="flex gap-1 flex-wrap">
+                      {harmonyColors.map(({ label, c }) => (
+                        <button key={label} title={label}
+                          className="w-5 h-5 rounded border border-white/15 hover:scale-110 transition-all"
+                          style={{ backgroundColor: c }} onClick={() => commitColor(c)}/>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
