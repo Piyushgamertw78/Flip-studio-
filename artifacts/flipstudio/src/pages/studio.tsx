@@ -11,7 +11,7 @@ import {
   Scissors, Clipboard,
   Maximize2, Target, ChevronRight, ChevronLeft, Film, Edit3,
   MoreHorizontal, Crosshair, Sliders, ArrowRight,
-  Mic, MicOff, ImagePlus, Music2, StopCircle, Volume2, VolumeX,
+  Mic, MicOff, ImagePlus, Music2, StopCircle, Volume2, VolumeX, Loader2,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1125,6 +1125,72 @@ export default function Studio() {
     a.click();
   }, [currentFrameIdx]);
 
+  // ─── GIF Export ───────────────────────────────────────────────────────────────
+  const [isExportingGif, setIsExportingGif] = useState(false);
+  const exportGif = useCallback(async () => {
+    if (!project || frames.length === 0) return;
+    setIsExportingGif(true);
+    try {
+      // Load gif.js dynamically from CDN
+      const GIF = await new Promise<any>((resolve, reject) => {
+        if ((window as any).GIF) { resolve((window as any).GIF); return; }
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js";
+        script.onload = () => resolve((window as any).GIF);
+        script.onerror = () => reject(new Error("Failed to load gif.js"));
+        document.head.appendChild(script);
+      });
+
+      const W = project.width ?? 800;
+      const H = project.height ?? 600;
+      const fps = project.fps ?? 12;
+      const delay = Math.round(1000 / fps);
+
+      const gif = new GIF({
+        workers: 2,
+        quality: 8,
+        width: W,
+        height: H,
+        workerScript: "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js",
+      });
+
+      // Render each frame to a temporary canvas
+      for (let fi = 0; fi < frames.length; fi++) {
+        const frame = frames[fi];
+        const tmp = document.createElement("canvas");
+        tmp.width = W; tmp.height = H;
+        const ctx = tmp.getContext("2d")!;
+
+        // Get strokes for all layers in this frame
+        const frameLayers = layers.filter(l => l.frameId === frame.id);
+        const layerStrokes = new Map<number, import("../lib/rendering").Stroke[]>();
+        for (const layer of frameLayers) {
+          const data = import("../lib/rendering").then(m => m.safeParseCanvas(layer.canvasData));
+          layerStrokes.set(layer.id, (await data).strokes);
+        }
+
+        const { compositeAllLayers } = await import("../lib/rendering");
+        compositeAllLayers(ctx, frameLayers, layerStrokes, W, H, project.backgroundColor ?? "#ffffff");
+        gif.addFrame(tmp, { delay, copy: true });
+      }
+
+      gif.on("finished", (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${project.name ?? "animation"}.gif`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setIsExportingGif(false);
+      });
+
+      gif.render();
+    } catch (err) {
+      console.error("GIF export failed", err);
+      setIsExportingGif(false);
+    }
+  }, [project, frames, layers]);
+
   // ─── Background color ─────────────────────────────────────────────────────────
   const changeBgColor = useCallback(async (newColor: string) => {
     if (!project) return;
@@ -1297,6 +1363,11 @@ export default function Studio() {
             <button onClick={exportCurrentFrame} title="Save frame as PNG"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors">
               <Film className="w-4 h-4"/>
+            </button>
+            <button onClick={() => void exportGif()} disabled={isExportingGif}
+              title="Export all frames as animated GIF"
+              className="flex items-center gap-1 px-2.5 h-9 rounded-xl text-[12px] font-bold bg-emerald-700/60 hover:bg-emerald-600/70 text-emerald-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait shrink-0">
+              {isExportingGif ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/> GIF…</> : <>GIF</>}
             </button>
             <button onClick={() => setLocation("/projects/" + projectId + "/export")}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[13px] font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95 shrink-0">
