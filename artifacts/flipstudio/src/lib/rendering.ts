@@ -5,7 +5,7 @@ export type Tool =
   | "pencil" | "pen" | "brush" | "eraser" | "fill" | "move"
   | "line" | "rect" | "ellipse" | "triangle" | "arrow" | "text" | "eyedropper"
   | "chalk" | "marker" | "watercolor" | "spray" | "calligraphy"
-  | "star" | "polygon" | "lasso" | "select" | "crop";
+  | "star" | "polygon" | "lasso" | "select" | "crop" | "gradient";
 
 export interface Stroke {
   tool: Tool;
@@ -158,6 +158,27 @@ export function renderSingleStroke(
       ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     }
+    return;
+  }
+
+  // Gradient fill stroke
+  if (s.tool === "gradient" && s.points.length >= 2) {
+    const p0 = s.points[0]!, p1 = s.points[s.points.length - 1]!;
+    let grad: CanvasGradient;
+    if ((s as unknown as { gradientType?: string }).gradientType === "radial") {
+      const dx = (p1.x - p0.x) * w, dy = (p1.y - p0.y) * h;
+      const r = Math.sqrt(dx*dx + dy*dy);
+      grad = ctx.createRadialGradient(p0.x*w, p0.y*h, 0, p0.x*w, p0.y*h, Math.max(1, r));
+    } else {
+      grad = ctx.createLinearGradient(p0.x*w, p0.y*h, p1.x*w, p1.y*h);
+    }
+    grad.addColorStop(0, s.color);
+    const color2 = (s as unknown as { color2?: string }).color2 ?? "#000000";
+    grad.addColorStop(1, color2);
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
     return;
   }
 
