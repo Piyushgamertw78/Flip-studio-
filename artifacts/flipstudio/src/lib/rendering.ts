@@ -23,6 +23,8 @@ export interface Stroke {
   fontStyle?: string;
   filled?: boolean;
   sides?: number; // polygon/star
+  imageData?: string; // baked PNG data-URL (used by layer adjust / filter apply)
+  blendMode?: string;
 }
 
 export interface CanvasData { strokes: Stroke[] }
@@ -156,6 +158,16 @@ export function renderSingleStroke(
       ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     }
+    return;
+  }
+
+  // Baked image stroke (used by layer adjust, stamp, etc.)
+  if (s.imageData) {
+    const img = new Image();
+    img.src = s.imageData;
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(img, 0, 0, w, h);
+    ctx.globalAlpha = 1;
     return;
   }
 
