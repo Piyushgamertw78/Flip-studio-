@@ -173,6 +173,7 @@ export default function Studio() {
 
   // ── Canvas display width (JS-based, avoids CSS min() issues on older Android WebViews) ──
   const [canvasDisplayW, setCanvasDisplayW] = useState<number>(300);
+  const [showBgPicker, setShowBgPicker] = useState(false);
 
   // ── Reference image ──────────────────────────────────────────────────────────
   const [refImage, setRefImage]         = useState<string | null>(null);
@@ -1124,6 +1125,14 @@ export default function Studio() {
     a.click();
   }, [currentFrameIdx]);
 
+  // ─── Background color ─────────────────────────────────────────────────────────
+  const changeBgColor = useCallback(async (newColor: string) => {
+    if (!project) return;
+    await db.projects.update(projectId, { backgroundColor: newColor });
+    setProject(p => p ? { ...p, backgroundColor: newColor } : p);
+    redraw();
+  }, [project, projectId, redraw]);
+
   // ─── Rename project ──────────────────────────────────────────────────────────
   const saveProjectName = useCallback(async () => {
     if (!projectNameVal.trim()) return;
@@ -1250,6 +1259,30 @@ export default function Studio() {
                 showGrid ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/8")}>
               <Grid3X3 className="w-4 h-4"/>
             </button>
+            {/* Background color picker */}
+            <div className="relative shrink-0">
+              <button title="Canvas Background Color" onClick={() => setShowBgPicker(p => !p)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center border-2 border-white/15 hover:border-white/30 transition-all overflow-hidden">
+                <div className="w-full h-full rounded" style={{ background: project?.backgroundColor === "transparent" ? "linear-gradient(45deg,#ccc 25%,#fff 25%,#fff 75%,#ccc 75%)" : project?.backgroundColor ?? "#ffffff" }}/>
+              </button>
+              {showBgPicker && (
+                <div className="absolute top-10 left-0 z-50 bg-[#13131f] border border-white/10 rounded-2xl shadow-2xl p-3 w-52">
+                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Canvas Background</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {["#ffffff","#000000","#111111","#1a1a2e","#fef3c7","#ecfdf5","#eff6ff","#fdf4ff","#fff7ed","transparent"].map(c => (
+                      <button key={c} onClick={() => { void changeBgColor(c); setShowBgPicker(false); }}
+                        className={cn("w-7 h-7 rounded-lg border-2 transition-all hover:scale-110",
+                          project?.backgroundColor === c ? "border-violet-500" : "border-white/15")}
+                        style={{ background: c === "transparent" ? "linear-gradient(45deg,#888 25%,#fff 25%,#fff 75%,#888 75%)" : c }}
+                        title={c}/>
+                    ))}
+                  </div>
+                  <input type="color" value={project?.backgroundColor === "transparent" ? "#ffffff" : (project?.backgroundColor ?? "#ffffff")}
+                    onChange={e => void changeBgColor(e.target.value)}
+                    className="w-full h-9 rounded-xl cursor-pointer bg-transparent border border-white/10"/>
+                </div>
+              )}
+            </div>
             <div className="w-px h-5 bg-white/[0.07] shrink-0"/>
             <button onClick={undo} title="Undo" className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors shrink-0">
               <Undo2 className="w-4 h-4"/>
