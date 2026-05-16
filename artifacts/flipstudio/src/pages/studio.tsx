@@ -691,6 +691,57 @@ export default function Studio() {
     setLayers(prev => prev.map(l => l.id === layerId ? { ...l, blendMode: mode } : l));
   }, []);
 
+  // ─── Layer brightness/contrast/saturation adjust ──────────────────────────────
+  const [showLayerAdjust, setShowLayerAdjust] = useState<number | null>(null);
+  const [layerBright, setLayerBright] = useState(0);
+  const [layerContrast, setLayerContrast]     = useState(0);
+  const [layerSat, setLayerSat] = useState(0);
+
+  const applyLayerAdjust = useCallback((layerId: number) => {
+    if (!project || !currentFrame) return;
+    const strokes = layerStrokes.current.get(layerId) ?? [];
+    const CW = project.width, CH = project.height;
+    const tmpC = document.createElement("canvas"); tmpC.width = CW; tmpC.height = CH;
+    const tmpCtx = tmpC.getContext("2d")!;
+    const map = new Map([[layerId, strokes]]);
+    const thisLayer = layers.find(l => l.id === layerId);
+    if (!thisLayer) return;
+    compositeAllLayers(tmpCtx, [thisLayer], map, CW, CH, "transparent");
+    const id = tmpCtx.getImageData(0, 0, CW, CH);
+    const d = id.data;
+    const br = layerBright / 100;
+    const ct = layerContrast / 100;
+    const sat = 1 + layerSat / 100;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i+3]! === 0) continue;
+      let r = d[i]! / 255, g = d[i+1]! / 255, b = d[i+2]! / 255;
+      // Brightness
+      r += br; g += br; b += br;
+      // Contrast
+      r = (r - 0.5) * (1 + ct) + 0.5;
+      g = (g - 0.5) * (1 + ct) + 0.5;
+      b = (b - 0.5) * (1 + ct) + 0.5;
+      // Saturation (luminance-preserving)
+      const lum = 0.299*r + 0.587*g + 0.114*b;
+      r = lum + (r - lum) * sat;
+      g = lum + (g - lum) * sat;
+      b = lum + (b - lum) * sat;
+      d[i]   = Math.max(0, Math.min(255, r * 255));
+      d[i+1] = Math.max(0, Math.min(255, g * 255));
+      d[i+2] = Math.max(0, Math.min(255, b * 255));
+    }
+    tmpCtx.putImageData(id, 0, 0);
+    // Convert to adjusted stroke list (single image stroke)
+    const dataUrl = tmpC.toDataURL("image/png");
+    const prevMap = new Map(layerStrokes.current);
+    undoStack.current.push(prevMap); redoStack.current = [];
+    const imageStroke = { tool: "image" as Tool, color: "#000000", size: 1, opacity: 1, points: [{x:0,y:0}], imageData: dataUrl, blendMode: "source-over" } as unknown as Stroke;
+    layerStrokes.current = new Map(layerStrokes.current).set(layerId, [imageStroke]);
+    redraw(); scheduleAutoSave();
+    setShowLayerAdjust(null);
+    setLayerBright(0); setLayerContrast(0); setLayerSat(0);
+  }, [project, currentFrame, layers, layerBright, layerContrast, layerSat, redraw, scheduleAutoSave]);
+
   const moveLayerUp = useCallback(async (ridx: number) => {
     if (ridx <= 0) return;
     const a = sortedLayers[ridx]!, b = sortedLayers[ridx - 1]!;
@@ -2311,11 +2362,39 @@ export default function Studio() {
                         className="w-full bg-white/[0.06] border border-white/10 rounded text-[10px] text-white/50 px-1.5 py-0.5 outline-none">
                         {BLEND_MODES.map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
+                      {/* Layer adjust (brightness/contrast/saturation) */}
+                      {showLayerAdjust === layer.id ? (
+                        <div className="space-y-1 mt-1 p-1.5 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                          {[
+                            { label: "Bright", val: layerBright, set: setLayerBright },
+                            { label: "Contrast", val: layerContrast, set: setLayerContrast },
+                            { label: "Sat", val: layerSat, set: setLayerSat },
+                          ].map(({ label, val, set }) => (
+                            <div key={label} className="flex items-center gap-1">
+                              <span className="text-[8px] text-white/25 w-9 shrink-0">{label}</span>
+                              <input type="range" min={-100} max={100} value={val}
+                                onChange={e => set(Number(e.target.value))}
+                                className="flex-1 h-1 accent-violet-500"/>
+                              <span className="text-[8px] text-white/25 w-6 text-right tabular-nums">{val > 0 ? "+" : ""}{val}</span>
+                            </div>
+                          ))}
+                          <div className="flex gap-1 mt-1">
+                            <button className="flex-1 h-5 rounded text-[8px] bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                              onClick={() => applyLayerAdjust(layer.id)}>Apply</button>
+                            <button className="flex-1 h-5 rounded text-[8px] text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+                              onClick={() => { setShowLayerAdjust(null); setLayerBright(0); setLayerContrast(0); setLayerSat(0); }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : null}
                       {/* Layer actions */}
                       <div className="flex gap-0.5">
                         <button className="flex-1 h-6 rounded text-[9px] text-white/30 hover:text-white hover:bg-white/10 flex items-center justify-center gap-0.5"
                           onClick={() => { setShowRenameLayer(layer.id); setRenameValue(layer.name); }}>
                           <Edit3 className="w-2.5 h-2.5"/> Rename
+                        </button>
+                        <button className="flex-1 h-6 rounded text-[9px] text-violet-400/60 hover:text-violet-300 hover:bg-violet-500/10 flex items-center justify-center gap-0.5"
+                          onClick={() => { setShowLayerAdjust(showLayerAdjust === layer.id ? null : layer.id); setLayerBright(0); setLayerContrast(0); setLayerSat(0); }}>
+                          <Sliders className="w-2.5 h-2.5"/> Adj
                         </button>
                         <button className="flex-1 h-6 rounded text-[9px] text-white/30 hover:text-white hover:bg-white/10 flex items-center justify-center gap-0.5"
                           onClick={() => void duplicateLayer(layer.id)}>
