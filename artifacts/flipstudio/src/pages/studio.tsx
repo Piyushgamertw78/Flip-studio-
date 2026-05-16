@@ -169,7 +169,11 @@ export default function Studio() {
   const [symmetryMode, setSymmetryMode] = useState<SymmetryMode>("none");
   const [snapToGrid, setSnapToGrid] = useState(false);
   const [textInput, setTextInput]   = useState<{ x: number; y: number; val: string } | null>(null);
+  const [textFont, setTextFont]     = useState("Inter, sans-serif");
+  const [textBold, setTextBold]     = useState(false);
+  const [textItalic, setTextItalic] = useState(false);
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [editingFrameDelay, setEditingFrameDelay] = useState<number | null>(null); // frame idx
 
   // ── Canvas display width (JS-based, avoids CSS min() issues on older Android WebViews) ──
   const [canvasDisplayW, setCanvasDisplayW] = useState<number>(300);
@@ -190,7 +194,7 @@ export default function Studio() {
   const isDrawing  = useRef(false);
   const curStroke  = useRef<Stroke | null>(null);
   const allCurStrokes = useRef<Stroke[]>([]); // for symmetry - multiple strokes at once
-  const playTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panStart   = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const pingPongDir = useRef(1);
@@ -439,34 +443,43 @@ export default function Studio() {
   useEffect(() => { redraw(); }, [redraw]);
 
   // ─── Playback ───────────────────────────────────────────────────────────────
+  const advancePlayback = useCallback(() => {
+    setCurrentFrameIdx(prev => {
+      let next = prev + pingPongDir.current;
+      if (pingPong) {
+        if (next >= frames.length) { pingPongDir.current = -1; next = frames.length - 2; }
+        if (next < 0) { pingPongDir.current = 1; next = 1; }
+      } else {
+        if (next >= frames.length) {
+          if (loopPlay) next = 0;
+          else { setIsPlaying(false); return prev; }
+        }
+      }
+      const frame = frames[next];
+      if (frame) {
+        void db.layers.listByFrame(frame.id).then(ls => {
+          const map = new Map<number, Stroke[]>();
+          for (const l of ls) map.set(l.id, safeParseCanvas(l.canvasData).strokes);
+          layerStrokes.current = map;
+          setLayers(ls);
+        });
+        // Schedule next advance using this frame's duration if set
+        const frameDuration = (frame.duration && frame.duration > 0)
+          ? frame.duration
+          : Math.round(1000 / ((project?.fps ?? 12) * playbackSpeed));
+        if (playTimer.current) clearTimeout(playTimer.current as unknown as ReturnType<typeof setTimeout>);
+        (playTimer.current as unknown) = setTimeout(advancePlayback, frameDuration / playbackSpeed);
+      }
+      return next;
+    });
+  }, [frames, pingPong, loopPlay, project, playbackSpeed]);
+
   useEffect(() => {
     if (isPlaying && frames.length > 1) {
-      playTimer.current = setInterval(async () => {
-        setCurrentFrameIdx(prev => {
-          let next = prev + pingPongDir.current;
-          if (pingPong) {
-            if (next >= frames.length) { pingPongDir.current = -1; next = frames.length - 2; }
-            if (next < 0) { pingPongDir.current = 1; next = 1; }
-          } else {
-            if (next >= frames.length) {
-              if (loopPlay) next = 0;
-              else { setIsPlaying(false); return prev; }
-            }
-          }
-          const frame = frames[next];
-          if (frame) {
-            void db.layers.listByFrame(frame.id).then(ls => {
-              const map = new Map<number, Stroke[]>();
-              for (const l of ls) map.set(l.id, safeParseCanvas(l.canvasData).strokes);
-              layerStrokes.current = map;
-              setLayers(ls);
-            });
-          }
-          return next;
-        });
-      }, 1000 / ((project?.fps ?? 12) * playbackSpeed));
+      const baseDelay = Math.round(1000 / ((project?.fps ?? 12) * playbackSpeed));
+      (playTimer.current as unknown) = setTimeout(advancePlayback, baseDelay);
     } else {
-      if (playTimer.current) { clearInterval(playTimer.current); playTimer.current = null; }
+      if (playTimer.current) { clearTimeout(playTimer.current as unknown as ReturnType<typeof setTimeout>); playTimer.current = null; }
     }
     return () => { if (playTimer.current) clearInterval(playTimer.current); };
   }, [isPlaying, frames, project?.fps, loopPlay, pingPong, playbackSpeed]);
@@ -1058,9 +1071,11 @@ export default function Studio() {
     if (!textInput || !val.trim() || !currentLayerId || currentLayer?.locked) {
       setTextInput(null); return;
     }
+    const fontStr = `${textItalic ? "italic " : ""}${textBold ? "bold " : ""}normal`;
     const stroke: Stroke = {
       tool: "text", color, size, opacity, points: [{ x: textInput.x, y: textInput.y, pressure: 1 }],
       text: val, textX: textInput.x, textY: textInput.y, textSize: size * 5,
+      fontFamily: textFont, fontStyle: fontStr,
     };
     const prev = new Map(layerStrokes.current);
     undoStack.current.push(prev); redoStack.current = [];
@@ -1068,7 +1083,7 @@ export default function Studio() {
     layerStrokes.current = new Map(layerStrokes.current).set(currentLayerId, [...existing, stroke]);
     setTextInput(null);
     redraw(); scheduleAutoSave();
-  }, [textInput, currentLayerId, currentLayer, color, size, opacity, redraw, scheduleAutoSave]);
+  }, [textInput, currentLayerId, currentLayer, color, size, opacity, textFont, textBold, textItalic, redraw, scheduleAutoSave]);
 
   // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1190,6 +1205,14 @@ export default function Studio() {
       setIsExportingGif(false);
     }
   }, [project, frames, layers]);
+
+  // ─── Per-frame delay ──────────────────────────────────────────────────────────
+  const updateFrameDelay = useCallback(async (frameIdx: number, delayMs: number) => {
+    const frame = frames[frameIdx];
+    if (!frame) return;
+    await db.frames.update(frame.id, { duration: delayMs });
+    setFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, duration: delayMs } : f));
+  }, [frames]);
 
   // ─── Background color ─────────────────────────────────────────────────────────
   const changeBgColor = useCallback(async (newColor: string) => {
@@ -1685,6 +1708,34 @@ export default function Studio() {
                   className="[&_[role=slider]]:bg-violet-500 [&_[role=slider]]:border-0"/>
               </div>
             )}
+            {/* Text font options */}
+            {tool === "text" && (
+              <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                <span className="text-[10px] text-white/25 uppercase tracking-wider font-bold block mb-2">Text Style</span>
+                <div className="flex gap-1.5 mb-2">
+                  <button onClick={() => setTextBold(b => !b)}
+                    className={cn("flex-1 h-7 rounded-lg text-[12px] font-bold transition-all border",
+                      textBold ? "border-violet-500/50 bg-violet-600/15 text-violet-300" : "border-white/[0.07] text-white/40 hover:border-white/15")}>B</button>
+                  <button onClick={() => setTextItalic(i => !i)}
+                    className={cn("flex-1 h-7 rounded-lg text-[12px] italic transition-all border",
+                      textItalic ? "border-violet-500/50 bg-violet-600/15 text-violet-300" : "border-white/[0.07] text-white/40 hover:border-white/15")}>I</button>
+                </div>
+                <select value={textFont} onChange={e => setTextFont(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg text-[11px] text-white/60 px-2 py-1.5 outline-none">
+                  {[
+                    ["Inter, sans-serif", "Inter (default)"],
+                    ["Georgia, serif", "Georgia"],
+                    ["'Courier New', monospace", "Courier New"],
+                    ["Arial, sans-serif", "Arial"],
+                    ["'Times New Roman', serif", "Times New Roman"],
+                    ["Impact, fantasy", "Impact"],
+                    ["'Comic Sans MS', cursive", "Comic Sans"],
+                  ].map(([val, label]) => (
+                    <option key={val} value={val}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* Grid size */}
             {showGrid && (
               <div className="mt-2">
@@ -1873,7 +1924,9 @@ export default function Studio() {
                   top: `${textInput.y * 100}%`,
                   fontSize: `${size * 3}px`,
                   color,
-                  fontFamily: "Inter, sans-serif",
+                  fontFamily: textFont,
+                  fontWeight: textBold ? "bold" : "normal",
+                  fontStyle: textItalic ? "italic" : "normal",
                   minWidth: 80,
                   transform: `translateY(-50%)`,
                 }}
@@ -2201,10 +2254,29 @@ export default function Studio() {
                   </button>
                 )}
               </div>
-              <div className="absolute bottom-0 left-0 right-0 h-3 flex items-end px-1">
-                <span className="text-[8px] text-white/30">{idx + 1}</span>
+              {/* Per-frame delay badge — click to edit */}
+              <div className="absolute bottom-0 left-0 right-0 h-4 flex items-center px-1 gap-0.5">
+                <span className="text-[8px] text-white/25">{idx + 1}</span>
+                {editingFrameDelay === idx ? (
+                  <input autoFocus type="number" min={16} max={5000} step={10}
+                    defaultValue={frame.duration && frame.duration > 0 ? frame.duration : Math.round(1000 / (project?.fps ?? 12))}
+                    className="w-9 h-3 bg-black/80 border border-violet-500/60 rounded text-[7px] text-white px-0.5 outline-none"
+                    onBlur={e => { void updateFrameDelay(idx, Number(e.target.value) || 83); setEditingFrameDelay(null); }}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") { void updateFrameDelay(idx, Number((e.target as HTMLInputElement).value) || 83); setEditingFrameDelay(null); } }}
+                  />
+                ) : (frame.duration && frame.duration > 0) ? (
+                  <button className="text-[7px] text-violet-400 hover:text-violet-200 transition-colors"
+                    onClick={e => { e.stopPropagation(); setEditingFrameDelay(idx); }}
+                    title="Custom frame delay (ms)">
+                    {frame.duration}ms
+                  </button>
+                ) : (
+                  <button className="text-[7px] text-white/20 hover:text-white/50 transition-colors"
+                    onClick={e => { e.stopPropagation(); setEditingFrameDelay(idx); }}
+                    title="Click to set custom frame delay">⏱</button>
+                )}
               </div>
-              {currentFrameIdx === idx && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-violet-500"/>}
+              {currentFrameIdx === idx && <div className="absolute top-0 left-0 right-0 h-0.5 bg-violet-500"/>}
             </div>
           ))}
           {/* Add frame button in strip */}
