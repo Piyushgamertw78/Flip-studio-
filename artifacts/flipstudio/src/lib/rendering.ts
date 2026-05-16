@@ -19,6 +19,8 @@ export interface Stroke {
   textX?: number;
   textY?: number;
   textSize?: number;
+  fontFamily?: string;
+  fontStyle?: string;
   filled?: boolean;
   sides?: number; // polygon/star
 }
@@ -160,7 +162,9 @@ export function renderSingleStroke(
   if (s.tool === "text" && s.text && s.textX !== undefined && s.textY !== undefined) {
     ctx.globalAlpha = opacity;
     const fs = (s.textSize ?? s.size * 5);
-    ctx.font = `${fs}px Inter, sans-serif`;
+    const ff = s.fontFamily ?? "Inter, sans-serif";
+    const fst = s.fontStyle ?? "normal";
+    ctx.font = `${fst} ${fs}px ${ff}`;
     ctx.fillStyle = s.color;
     ctx.fillText(s.text, s.textX * w, s.textY * h);
     ctx.globalAlpha = 1;
