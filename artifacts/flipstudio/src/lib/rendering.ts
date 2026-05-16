@@ -39,6 +39,54 @@ function hexToRgb(hex: string): [number, number, number] {
   return [r || 0, g || 0, b || 0];
 }
 
+function _hexToRgba(hex: string): [number,number,number,number] {
+  const h = hex.replace("#","");
+  if (h.length === 3) {
+    return [parseInt(h[0]!+h[0]!,16),parseInt(h[1]!+h[1]!,16),parseInt(h[2]!+h[2]!,16),255];
+  }
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16),255];
+}
+
+function _floodFillCtx(
+  ctx: CanvasRenderingContext2D,
+  startX: number, startY: number,
+  fillColor: string, opacity: number,
+  w: number, h: number
+) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  const startIdx = (startY * w + startX) * 4;
+  const tr = data[startIdx]!;
+  const tg = data[startIdx+1]!;
+  const tb = data[startIdx+2]!;
+  const ta = data[startIdx+3]!;
+  const [fr,fg,fb] = _hexToRgba(fillColor);
+  const fa = Math.round(opacity * 255);
+  if (tr===fr && tg===fg && tb===fb && ta===fa) return;
+  const tolerance = 32;
+  const matches = (i4: number) =>
+    Math.abs(data[i4]!-tr)<=tolerance &&
+    Math.abs(data[i4+1]!-tg)<=tolerance &&
+    Math.abs(data[i4+2]!-tb)<=tolerance &&
+    Math.abs(data[i4+3]!-ta)<=tolerance;
+  const visited = new Uint8Array(w * h);
+  const stack: number[] = [startY * w + startX];
+  while (stack.length) {
+    const idx = stack.pop()!;
+    if (visited[idx]) continue;
+    const i4 = idx * 4;
+    if (!matches(i4)) continue;
+    visited[idx] = 1;
+    data[i4]=fr; data[i4+1]=fg; data[i4+2]=fb; data[i4+3]=fa;
+    const x = idx % w, y = (idx/w)|0;
+    if (x > 0)     stack.push(idx-1);
+    if (x < w-1)   stack.push(idx+1);
+    if (y > 0)     stack.push(idx-w);
+    if (y < h-1)   stack.push(idx+w);
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
 export function renderStrokes(
   ctx: CanvasRenderingContext2D,
   strokes: Stroke[],
@@ -95,10 +143,17 @@ export function renderSingleStroke(
   ctx.globalCompositeOperation = "source-over";
 
   if (s.tool === "fill") {
-    ctx.globalAlpha = opacity;
-    ctx.fillStyle = s.color;
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalAlpha = 1;
+    const p = s.points[0];
+    if (p && w > 0 && h > 0) {
+      const sx = Math.max(0, Math.min(w - 1, Math.floor(p.x * w)));
+      const sy = Math.max(0, Math.min(h - 1, Math.floor(p.y * h)));
+      _floodFillCtx(ctx, sx, sy, s.color, opacity, w, h);
+    } else {
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = s.color;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+    }
     return;
   }
 
