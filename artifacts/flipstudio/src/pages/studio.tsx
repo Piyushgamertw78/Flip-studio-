@@ -1120,6 +1120,26 @@ export default function Studio() {
     redraw(); scheduleAutoSave();
   }, [textInput, currentLayerId, currentLayer, color, size, opacity, textFont, textBold, textItalic, redraw, scheduleAutoSave]);
 
+  // ─── Quick erase (hold Alt to temporarily erase, release to restore) ─────────
+  const toolBeforeAlt = useRef<Tool | null>(null);
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      if (e.key === "Alt" && !e.repeat) {
+        setTool(prev => { toolBeforeAlt.current = prev; return "eraser"; });
+      }
+    };
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key === "Alt" && toolBeforeAlt.current) {
+        const prev = toolBeforeAlt.current;
+        toolBeforeAlt.current = null;
+        setTool(prev);
+      }
+    };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    return () => { window.removeEventListener("keydown", onDown); window.removeEventListener("keyup", onUp); };
+  }, []);
+
   // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1130,7 +1150,7 @@ export default function Studio() {
         v:"move", s:"select", l:"line", r:"rect", o:"ellipse", t:"triangle",
         a:"arrow", k:"star", q:"polygon", x:"text",
       };
-      if (!e.ctrlKey && !e.metaKey && map[e.key.toLowerCase()]) {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && map[e.key.toLowerCase()]) {
         setTool(map[e.key.toLowerCase()]!);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
