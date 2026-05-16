@@ -2412,6 +2412,19 @@ export default function Studio() {
             backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
             backgroundSize: "24px 24px",
           }}/>
+          {/* Canvas background pattern overlay (user-selected) */}
+          {bgPattern !== "none" && (
+            <div className="absolute inset-0 pointer-events-none" style={{
+              backgroundImage: bgPattern === "checkerboard"
+                ? "linear-gradient(45deg,rgba(255,255,255,0.04) 25%,transparent 25%),linear-gradient(-45deg,rgba(255,255,255,0.04) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,rgba(255,255,255,0.04) 75%),linear-gradient(-45deg,transparent 75%,rgba(255,255,255,0.04) 75%)"
+                : bgPattern === "dots"
+                  ? "radial-gradient(circle, rgba(255,255,255,0.12) 1.5px, transparent 1.5px)"
+                  : "repeating-linear-gradient(0deg,rgba(255,255,255,0.05) 0px,rgba(255,255,255,0.05) 1px,transparent 1px,transparent 24px)",
+              backgroundSize: bgPattern === "checkerboard" ? "32px 32px" : bgPattern === "dots" ? "20px 20px" : "24px 24px",
+              backgroundPosition: bgPattern === "checkerboard" ? "0 0, 0 16px, 16px -16px, -16px 0" : "0 0",
+              mixBlendMode: "overlay",
+            }}/>
+          )}
 
           <div style={{
             transform: `scale(${zoom}) translate(${panOffset.x / zoom}px, ${panOffset.y / zoom}px)`,
