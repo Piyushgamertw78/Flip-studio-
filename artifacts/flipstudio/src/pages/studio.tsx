@@ -141,6 +141,8 @@ export default function Studio() {
   const [filledShape, setFilledShape] = useState(false);
   const [polygonSides, setPolygonSides] = useState(6);
   const [gradientType, setGradientType] = useState<"linear"|"radial">("linear");
+  const [speedPressure, setSpeedPressure] = useState(false); // brush size varies with speed
+  const [bgPattern, setBgPattern] = useState<"none"|"checkerboard"|"dots"|"lines">("none"); // canvas bg pattern overlay
   const [zoom, setZoom]             = useState(1);
   const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 });
   const [recentColors, setRecentColors] = useState<string[]>(["#000000","#ffffff","#ef4444","#3b82f6","#22c55e"]);
@@ -216,6 +218,8 @@ export default function Studio() {
   const lastTouchDist = useRef<number | null>(null);
   const lastTouchCenter = useRef<{ x: number; y: number } | null>(null);
   const touchPanStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const lastDrawTime = useRef<number>(0);
+  const lastDrawPos  = useRef<{ x: number; y: number } | null>(null);
   const swipeStartX = useRef<number | null>(null);
   const refInputRef       = useRef<HTMLInputElement>(null);
   const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
@@ -1175,6 +1179,19 @@ export default function Studio() {
       if (!curStroke.current || !currentLayerId) return;
       const symmPoints = getSymmetryPoints(pos, symmetryMode);
 
+      // Speed-based pressure: slow strokes → thicker, fast strokes → thinner
+      let speedPressureMod = 1;
+      if (speedPressure) {
+        const now = performance.now();
+        const dt = Math.max(1, now - lastDrawTime.current);
+        const dx = lastDrawPos.current ? (pos.x - lastDrawPos.current.x) * (canvasRef.current?.width ?? 1000) : 0;
+        const dy = lastDrawPos.current ? (pos.y - lastDrawPos.current.y) * (canvasRef.current?.height ?? 1000) : 0;
+        const speed = Math.sqrt(dx*dx + dy*dy) / dt; // px/ms
+        speedPressureMod = Math.max(0.2, Math.min(1.5, 1 / (1 + speed * 3)));
+        lastDrawTime.current = now;
+        lastDrawPos.current = { x: pos.x, y: pos.y };
+      }
+
       // Apply stabilizer (lazy brush)
       for (let si = 0; si < allCurStrokes.current.length; si++) {
         const stroke = allCurStrokes.current[si]!;
@@ -1184,7 +1201,7 @@ export default function Studio() {
         const t = stab === 0 ? 1 : 1 / (stab + 1);
         const sx = lastPt.x + (sp.x - lastPt.x) * t;
         const sy = lastPt.y + (sp.y - lastPt.y) * t;
-        const stabPt: Point = { x: sx, y: sy, pressure: sp.pressure };
+        const stabPt: Point = { x: sx, y: sy, pressure: sp.pressure * speedPressureMod };
         stroke.points.push(stabPt);
       }
 
@@ -1208,7 +1225,7 @@ export default function Studio() {
         renderSingleStroke(ctx, curStroke.current, overlay.width, overlay.height);
       }
     }
-  }, [tool, panOffset, getPos, currentLayerId, symmetryMode, brushStabilizer]);
+  }, [tool, panOffset, getPos, currentLayerId, symmetryMode, brushStabilizer, speedPressure]);
 
   const endDraw = useCallback(() => {
     lastTouchDist.current = null;
@@ -1330,6 +1347,10 @@ export default function Studio() {
       if (e.key === "ArrowRight" && !e.ctrlKey) { e.preventDefault(); void switchFrame(currentFrameIdx + 1); }
       if (e.key === "[") { setSize(s => Math.max(1, s - 2)); }
       if (e.key === "]") { setSize(s => Math.min(200, s + 2)); }
+      if (e.key === "X" && e.shiftKey && !e.ctrlKey) {
+        // Swap primary ↔ secondary colour (Shift+X, like Photoshop)
+        setColor(prev => { const next = prev; setColor2(c2prev => { setColor(c2prev); return next; }); return prev; });
+      }
       if (e.key === " ") { e.preventDefault(); if (isPlaying) setIsPlaying(false); else setIsPlaying(true); }
       if (e.key === "Escape") { setIsPlaying(false); setTextInput(null); setSelectionRect(null); }
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -2140,6 +2161,16 @@ export default function Studio() {
                   filledShape ? "left-5" : "left-0.5")}/>
               </button>
             </div>
+            {/* Speed-based pressure */}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[11px] text-white/35">Speed pressure</span>
+              <button className={cn("w-10 h-5 rounded-full transition-all relative",
+                speedPressure ? "bg-violet-600" : "bg-white/10")}
+                onClick={() => setSpeedPressure(p => !p)}>
+                <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
+                  speedPressure ? "left-5" : "left-0.5")}/>
+              </button>
+            </div>
             {/* Snap to grid */}
             <div className="flex items-center justify-between mt-2">
               <span className="text-[11px] text-white/35">Snap to grid</span>
@@ -2149,6 +2180,19 @@ export default function Studio() {
                 <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
                   snapToGrid ? "left-5" : "left-0.5")}/>
               </button>
+            </div>
+            {/* Canvas background pattern */}
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              <span className="text-[11px] text-white/35 block mb-1.5">Canvas pattern</span>
+              <div className="flex gap-1 flex-wrap">
+                {(["none","checkerboard","dots","lines"] as const).map(p => (
+                  <button key={p} onClick={() => setBgPattern(p)}
+                    className={cn("px-2 py-0.5 text-[9px] capitalize rounded border transition-all",
+                      bgPattern === p ? "bg-violet-600 border-violet-500 text-white" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
+                    {p === "none" ? "off" : p}
+                  </button>
+                ))}
+              </div>
             </div>
             {/* Polygon sides */}
             {(tool === "polygon" || tool === "star") && (
