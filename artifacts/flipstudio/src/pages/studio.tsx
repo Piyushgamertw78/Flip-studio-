@@ -742,6 +742,71 @@ export default function Studio() {
     setLayerBright(0); setLayerContrast(0); setLayerSat(0);
   }, [project, currentFrame, layers, layerBright, layerContrast, layerSat, redraw, scheduleAutoSave]);
 
+  // ─── One-click pixel effects ─────────────────────────────────────────────────
+  const applyPixelEffect = useCallback((layerId: number, effect: "grayscale"|"sepia"|"invert"|"pixelate"|"posterize") => {
+    if (!project) return;
+    const strokes = layerStrokes.current.get(layerId) ?? [];
+    const CW = project.width, CH = project.height;
+    const tmpC = document.createElement("canvas"); tmpC.width = CW; tmpC.height = CH;
+    const tmpCtx = tmpC.getContext("2d")!;
+    const thisLayer = layers.find(l => l.id === layerId);
+    if (!thisLayer) return;
+    compositeAllLayers(tmpCtx, [thisLayer], new Map([[layerId, strokes]]), CW, CH, "transparent");
+    const id = tmpCtx.getImageData(0, 0, CW, CH);
+    const d = id.data;
+    if (effect === "grayscale") {
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3]! === 0) continue;
+        const g = 0.299*d[i]! + 0.587*d[i+1]! + 0.114*d[i+2]!;
+        d[i] = d[i+1] = d[i+2] = g;
+      }
+    } else if (effect === "sepia") {
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3]! === 0) continue;
+        const r=d[i]!, g=d[i+1]!, b=d[i+2]!;
+        d[i]   = Math.min(255, r*0.393+g*0.769+b*0.189);
+        d[i+1] = Math.min(255, r*0.349+g*0.686+b*0.168);
+        d[i+2] = Math.min(255, r*0.272+g*0.534+b*0.131);
+      }
+    } else if (effect === "invert") {
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3]! === 0) continue;
+        d[i]=255-d[i]!; d[i+1]=255-d[i+1]!; d[i+2]=255-d[i+2]!;
+      }
+    } else if (effect === "posterize") {
+      const levels = 4;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3]! === 0) continue;
+        d[i]   = Math.round(d[i]!   / 255 * (levels-1)) / (levels-1) * 255;
+        d[i+1] = Math.round(d[i+1]! / 255 * (levels-1)) / (levels-1) * 255;
+        d[i+2] = Math.round(d[i+2]! / 255 * (levels-1)) / (levels-1) * 255;
+      }
+    } else if (effect === "pixelate") {
+      const block = Math.max(4, Math.round(Math.min(CW, CH) / 40));
+      tmpCtx.putImageData(id, 0, 0);
+      for (let y = 0; y < CH; y += block) {
+        for (let x = 0; x < CW; x += block) {
+          const px = tmpCtx.getImageData(x, y, 1, 1).data;
+          tmpCtx.fillStyle = `rgba(${px[0]},${px[1]},${px[2]},${(px[3]??255)/255})`;
+          tmpCtx.fillRect(x, y, block, block);
+        }
+      }
+      const dataUrl = tmpC.toDataURL("image/png");
+      const prevMap = new Map(layerStrokes.current);
+      undoStack.current.push(prevMap); redoStack.current = [];
+      const imgStroke = { tool:"pencil" as Tool, color:"#000000", size:1, opacity:100, points:[{x:0,y:0,pressure:1}], imageData: dataUrl } as unknown as Stroke;
+      layerStrokes.current = new Map(layerStrokes.current).set(layerId, [imgStroke]);
+      redraw(); scheduleAutoSave(); return;
+    }
+    tmpCtx.putImageData(id, 0, 0);
+    const dataUrl = tmpC.toDataURL("image/png");
+    const prevMap = new Map(layerStrokes.current);
+    undoStack.current.push(prevMap); redoStack.current = [];
+    const imgStroke = { tool:"pencil" as Tool, color:"#000000", size:1, opacity:100, points:[{x:0,y:0,pressure:1}], imageData: dataUrl } as unknown as Stroke;
+    layerStrokes.current = new Map(layerStrokes.current).set(layerId, [imgStroke]);
+    redraw(); scheduleAutoSave();
+  }, [project, layers, redraw, scheduleAutoSave]);
+
   const moveLayerUp = useCallback(async (ridx: number) => {
     if (ridx <= 0) return;
     const a = sortedLayers[ridx]!, b = sortedLayers[ridx - 1]!;
@@ -2473,6 +2538,17 @@ export default function Studio() {
                             <Trash2 className="w-3 h-3"/>
                           </button>
                         )}
+                      </div>
+                      {/* Quick pixel effects row */}
+                      <div className="flex gap-0.5 flex-wrap">
+                        {(["grayscale","sepia","invert","posterize","pixelate"] as const).map(fx => (
+                          <button key={fx}
+                            className="h-5 px-1.5 rounded text-[7px] text-white/25 hover:text-white hover:bg-white/10 transition-colors border border-white/[0.04] hover:border-white/15 capitalize"
+                            onClick={() => applyPixelEffect(layer.id, fx)}
+                            title={`Apply ${fx} effect (destructive)`}>
+                            {fx === "grayscale" ? "Gray" : fx === "posterize" ? "Post" : fx === "pixelate" ? "Pxl" : fx[0]!.toUpperCase()+fx.slice(1)}
+                          </button>
+                        ))}
                       </div>
                       {/* Merge down */}
                       {ridx < sortedLayers.length - 1 && (
