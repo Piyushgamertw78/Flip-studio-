@@ -158,6 +158,7 @@ export default function Studio() {
   const [resizeW, setResizeW] = useState(800);
   const [resizeH, setResizeH] = useState(600);
   const [isExportingWebm, setIsExportingWebm] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
 
   // Animation
   const [isPlaying, setIsPlaying]       = useState(false);
@@ -505,8 +506,14 @@ export default function Studio() {
   }, [currentFrame, layers, projectId, currentFrameIdx]);
 
   const scheduleAutoSave = useCallback(() => {
+    setSaveStatus("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void saveCurrentLayerData(); }, 1200);
+    saveTimer.current = setTimeout(() => {
+      void saveCurrentLayerData().then(() => {
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 1800);
+      });
+    }, 1200);
   }, [saveCurrentLayerData]);
 
   // ─── Frame switching ─────────────────────────────────────────────────────────
@@ -1450,6 +1457,13 @@ export default function Studio() {
                 onClick={() => setShowRenameProject(true)}>
                 {project.name}
               </button>
+            )}
+            {/* Auto-save indicator */}
+            {saveStatus !== "idle" && (
+              <span className={cn("text-[10px] transition-all shrink-0",
+                saveStatus === "saving" ? "text-white/25" : "text-emerald-400/70")}>
+                {saveStatus === "saving" ? "saving…" : "✓ saved"}
+              </span>
             )}
           </div>
 
