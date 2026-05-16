@@ -916,6 +916,41 @@ export default function Studio() {
     });
   }, []);
 
+  // Auto-extract dominant colours from the current merged canvas
+  const extractPaletteFromCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const { width: w, height: h } = canvas;
+      const step = Math.max(1, Math.floor(Math.min(w, h) / 40));
+      const buckets = new Map<string, number>();
+      const px = ctx.getImageData(0, 0, w, h).data;
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const i = (y * w + x) * 4;
+          const a = px[i + 3]!;
+          if (a < 20) continue;
+          // quantise to 5-bit per channel
+          const rq = (px[i]! >> 3) << 3;
+          const gq = (px[i+1]! >> 3) << 3;
+          const bq = (px[i+2]! >> 3) << 3;
+          const key = `#${rq.toString(16).padStart(2,"0")}${gq.toString(16).padStart(2,"0")}${bq.toString(16).padStart(2,"0")}`;
+          buckets.set(key, (buckets.get(key) ?? 0) + 1);
+        }
+      }
+      const sorted = [...buckets.entries()].sort((a, b) => b[1] - a[1]);
+      const top = sorted.slice(0, 8).map(([c]) => c);
+      if (top.length > 0) {
+        setRecentColors(top);
+        // toast-style notification
+        setAutoSaveMsg("Palette extracted from canvas!");
+        setTimeout(() => setAutoSaveMsg(""), 2000);
+      }
+    } catch { /* tainted canvas in some envs */ }
+  }, []);
+
   const flipH = useCallback(() => {
     if (!currentLayerId || currentLayer?.locked) return;
     const strokes = layerStrokes.current.get(currentLayerId) ?? [];
@@ -1802,12 +1837,22 @@ export default function Studio() {
           {/* Color swatch — tap to open full color panel */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  className="w-10 h-10 rounded-xl border-[3px] transition-all shadow-lg"
-                  style={{ backgroundColor: color, borderColor: showColorPanel ? "#a78bfa" : "rgba(255,255,255,0.2)" }}
-                  onClick={() => setShowColorPanel(p => !p)}/>
+                <div className="relative w-10 h-10 cursor-pointer" onClick={() => setShowColorPanel(p => !p)}>
+                  <div className="absolute inset-0 rounded-xl border-[3px] transition-all shadow-lg"
+                    style={{ backgroundColor: color, borderColor: showColorPanel ? "#a78bfa" : "rgba(255,255,255,0.2)" }}/>
+                  {/* Secondary color (bottom-right) — for gradient tool */}
+                  <div className="absolute bottom-0 right-0 w-4 h-4 rounded-md border-2 border-[#0e0e1a] shadow"
+                    style={{ backgroundColor: color2 }}>
+                    <label className="absolute inset-0 cursor-pointer opacity-0 w-full h-full">
+                      <input type="color" value={color2}
+                        onChange={e => { e.stopPropagation(); setColor2(e.target.value); }}
+                        onClick={e => e.stopPropagation()}
+                        className="w-full h-full opacity-0 cursor-pointer"/>
+                    </label>
+                  </div>
+                </div>
               </TooltipTrigger>
-              <TooltipContent side="right">Color Picker</TooltipContent>
+              <TooltipContent side="right">Primary / Secondary colour (secondary used by gradient tool — click corner to change)</TooltipContent>
             </Tooltip>
 
             {/* Always-visible quick color strip */}
@@ -1963,8 +2008,16 @@ export default function Studio() {
               </div>
               {/* Recent colors */}
               <div className="mt-2">
-                <span className="text-[10px] text-white/30 uppercase tracking-wider">Recent</span>
-                <div className="flex gap-1 mt-1.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Recent</span>
+                  <button
+                    onClick={extractPaletteFromCanvas}
+                    title="Extract dominant colours from canvas"
+                    className="text-[9px] text-violet-400 hover:text-violet-300 border border-violet-500/30 hover:border-violet-400/60 rounded px-1.5 py-0.5 transition-all">
+                    ⬡ Extract from canvas
+                  </button>
+                </div>
+                <div className="flex gap-1 flex-wrap">
                   {recentColors.map((c, i) => (
                     <button key={i} className="w-6 h-6 rounded-lg border border-white/15 hover:scale-110 transition-all"
                       style={{ backgroundColor: c }} onClick={() => commitColor(c)}/>
@@ -2062,6 +2115,21 @@ export default function Studio() {
                 ))}
               </div>
             </div>
+            {/* Gradient type toggle */}
+            {tool === "gradient" && (
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
+                <span className="text-[11px] text-white/35">Gradient type</span>
+                <div className="flex rounded-lg overflow-hidden border border-white/10">
+                  {(["linear","radial"] as const).map(t => (
+                    <button key={t} onClick={() => setGradientType(t)}
+                      className={cn("px-2 py-1 text-[10px] capitalize transition-all",
+                        gradientType === t ? "bg-violet-600 text-white" : "bg-white/5 text-white/40 hover:bg-white/10")}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Filled shape toggle */}
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
               <span className="text-[11px] text-white/35">Filled shapes</span>
