@@ -42,6 +42,7 @@ const ALL_TOOLS: { id: Tool; icon: React.ReactNode; label: string; shortcut: str
   { id: "calligraphy", icon: <AlignLeft className="w-4 h-4" />,   label: "Calligraphy",  shortcut: "G", group: "draw" },
   { id: "eraser",      icon: <Eraser className="w-4 h-4" />,      label: "Eraser",       shortcut: "E", group: "draw" },
   { id: "fill",        icon: <PaintBucket className="w-4 h-4" />, label: "Fill",         shortcut: "F", group: "draw" },
+  { id: "gradient",    icon: <Sliders className="w-4 h-4" />,     label: "Gradient",     shortcut: "J", group: "draw" },
   { id: "eyedropper",  icon: <Pipette className="w-4 h-4" />,     label: "Eyedropper",   shortcut: "I", group: "draw" },
   { id: "move",        icon: <Move className="w-4 h-4" />,        label: "Pan",          shortcut: "V", group: "nav" },
   { id: "select",      icon: <Crosshair className="w-4 h-4" />,   label: "Select",       shortcut: "S", group: "nav" },
@@ -131,6 +132,7 @@ export default function Studio() {
   // Tool state
   const [tool, setTool]             = useState<Tool>("pencil");
   const [color, setColor]           = useState("#ffffff");
+  const [color2, setColor2]         = useState("#000000"); // secondary/gradient end color
   const [size, setSize]             = useState(6);
   const [opacity, setOpacity]       = useState(100);
   const [hardness, setHardness]     = useState(80);
@@ -138,6 +140,7 @@ export default function Studio() {
   const [brushStabilizer, setBrushStabilizer] = useState(3);
   const [filledShape, setFilledShape] = useState(false);
   const [polygonSides, setPolygonSides] = useState(6);
+  const [gradientType, setGradientType] = useState<"linear"|"radial">("linear");
   const [zoom, setZoom]             = useState(1);
   const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 });
   const [recentColors, setRecentColors] = useState<string[]>(["#000000","#ffffff","#ef4444","#3b82f6","#22c55e"]);
@@ -1041,6 +1044,17 @@ export default function Studio() {
       return;
     }
 
+    if (tool === "gradient") {
+      if (!currentLayerId || currentLayer?.locked) return;
+      const prev = new Map(layerStrokes.current);
+      undoStack.current.push(prev); redoStack.current = [];
+      const stroke = { tool: "gradient" as Tool, color, color2, size, opacity, points: [pos, { ...pos }], gradientType } as unknown as Stroke;
+      curStroke.current = stroke;
+      allCurStrokes.current = [stroke];
+      isDrawing.current = true;
+      return;
+    }
+
     if (tool === "select") {
       isDrawing.current = true;
       curStroke.current = { tool: "select" as Tool, color, size, opacity, points: [pos, { ...pos }] };
@@ -1077,7 +1091,7 @@ export default function Studio() {
       // *** CRITICAL FIX: allCurStrokes must be set for shape tools so endDraw can commit ***
       allCurStrokes.current = [stroke]; // shares object reference – continueDraw mutations reflected here
     }
-  }, [isPlaying, tool, panOffset, getPos, currentLayerId, currentLayer, color, size, opacity, hardness, flow, symmetryMode, filledShape, polygonSides, commitColor, redraw, scheduleAutoSave]);
+  }, [isPlaying, tool, panOffset, getPos, currentLayerId, currentLayer, color, color2, gradientType, size, opacity, hardness, flow, symmetryMode, filledShape, polygonSides, commitColor, redraw, scheduleAutoSave]);
 
   const continueDraw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     // Pinch-to-zoom
