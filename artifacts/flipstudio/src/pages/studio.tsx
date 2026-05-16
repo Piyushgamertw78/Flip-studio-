@@ -168,6 +168,11 @@ export default function Studio() {
   const [showOnionSkin, setShowOnionSkin] = useState(true);
   const [onionPrev, setOnionPrev]   = useState(2);
   const [onionNext, setOnionNext]   = useState(1);
+  const [onionPrevColor, setOnionPrevColor] = useState("#ff4444");
+  const [onionNextColor, setOnionNextColor] = useState("#44aaff");
+  const [editingFrameLabel, setEditingFrameLabel] = useState<number | null>(null);
+  const [frameLabelVal, setFrameLabelVal] = useState("");
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [showGrid, setShowGrid]     = useState(false);
   const [gridSize, setGridSize]     = useState(40);
   const [showRulers, setShowRulers] = useState(false);
@@ -325,8 +330,12 @@ export default function Studio() {
       gridCtx.restore();
     }
 
-    // Onion skinning — previous frames
+    // Onion skinning — previous frames (customisable colour)
     if (showOnionSkin) {
+      const hexToRgb = (hex: string) => {
+        const h = hex.replace("#","");
+        return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+      };
       for (let i = 1; i <= onionPrev; i++) {
         const pf = frames[currentFrameIdx - i];
         if (!pf) continue;
@@ -341,8 +350,8 @@ export default function Studio() {
         });
         ctx.globalAlpha = 0.25 / i;
         ctx.globalCompositeOperation = "source-over";
-        // Tint red for previous
-        ctx.fillStyle = `rgba(255,80,80,${0.15 / i})`;
+        const pc = hexToRgb(onionPrevColor);
+        ctx.fillStyle = `rgba(${pc.r},${pc.g},${pc.b},${0.15 / i})`;
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(tmp, 0, 0);
         ctx.globalAlpha = 1;
@@ -353,8 +362,8 @@ export default function Studio() {
         const nf = frames[currentFrameIdx + i];
         if (!nf) continue;
         ctx.globalAlpha = 0.18 / i;
-        // Tint green for next
-        ctx.fillStyle = `rgba(80,255,80,${0.12 / i})`;
+        const nc = hexToRgb(onionNextColor);
+        ctx.fillStyle = `rgba(${nc.r},${nc.g},${nc.b},${0.12 / i})`;
         ctx.fillRect(0, 0, w, h);
         ctx.globalAlpha = 1;
       }
@@ -443,7 +452,7 @@ export default function Studio() {
       ctx.setLineDash([]);
       ctx.restore();
     }
-  }, [project, layers, frames, currentFrameIdx, showOnionSkin, onionPrev, onionNext, showGrid, gridSize, symmetryMode, showRulers, selectionRect, zoom]);
+  }, [project, layers, frames, currentFrameIdx, showOnionSkin, onionPrev, onionNext, onionPrevColor, onionNextColor, showGrid, gridSize, symmetryMode, showRulers, selectionRect, zoom]);
 
   useEffect(() => { redraw(); }, [redraw]);
 
@@ -1347,6 +1356,14 @@ export default function Studio() {
     setFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, duration: delayMs } : f));
   }, [frames]);
 
+  const updateFrameLabel = useCallback(async (frameIdx: number, label: string) => {
+    const frame = frames[frameIdx];
+    if (!frame) return;
+    await db.frames.update(frame.id, { label });
+    setFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, label } : f));
+    setEditingFrameLabel(null);
+  }, [frames]);
+
   // ─── Background color ─────────────────────────────────────────────────────────
   const changeBgColor = useCallback(async (newColor: string) => {
     if (!project) return;
@@ -2178,6 +2195,12 @@ export default function Studio() {
               ONION {showOnionSkin ? "ON" : "OFF"}
             </button>
             {showOnionSkin && <>
+              {/* Prev colour swatch */}
+              <label className="relative cursor-pointer" title="Previous frame ghost colour">
+                <div className="w-3 h-3 rounded-sm border border-white/20" style={{ background: onionPrevColor }}/>
+                <input type="color" value={onionPrevColor} onChange={e => setOnionPrevColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"/>
+              </label>
               <button className="text-[10px] text-white/30 hover:text-white px-1" onClick={() => setOnionPrev(p => Math.max(0, p - 1))}>
                 ←{onionPrev}
               </button>
@@ -2187,6 +2210,12 @@ export default function Studio() {
                 {onionNext}→
               </button>
               <button className="text-[10px] text-white/30 hover:text-white px-1" onClick={() => setOnionNext(p => Math.min(5, p + 1))}>+</button>
+              {/* Next colour swatch */}
+              <label className="relative cursor-pointer" title="Next frame ghost colour">
+                <div className="w-3 h-3 rounded-sm border border-white/20" style={{ background: onionNextColor }}/>
+                <input type="color" value={onionNextColor} onChange={e => setOnionNextColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"/>
+              </label>
             </>}
           </div>
         </div>
@@ -2476,6 +2505,34 @@ export default function Studio() {
                 )}
               </div>
               {currentFrameIdx === idx && <div className="absolute top-0 left-0 right-0 h-0.5 bg-violet-500"/>}
+              {/* Frame label — double-click to rename */}
+              {editingFrameLabel === idx ? (
+                <div className="absolute -bottom-5 left-0 right-0 z-20">
+                  <input autoFocus value={frameLabelVal}
+                    onChange={e => setFrameLabelVal(e.target.value)}
+                    onBlur={() => void updateFrameLabel(idx, frameLabelVal)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") void updateFrameLabel(idx, frameLabelVal);
+                      if (e.key === "Escape") setEditingFrameLabel(null);
+                    }}
+                    className="w-full bg-[#1a1a2e] border border-violet-500/60 rounded text-[8px] text-white px-1 py-0.5 outline-none"
+                    placeholder="Label…"/>
+                </div>
+              ) : frame.label ? (
+                <div className="absolute -bottom-4 left-0 right-0 text-center">
+                  <span className="text-[7px] text-violet-300/60 truncate cursor-pointer hover:text-violet-200"
+                    onDoubleClick={e => { e.stopPropagation(); setFrameLabelVal(frame.label ?? ""); setEditingFrameLabel(idx); }}>
+                    {frame.label}
+                  </span>
+                </div>
+              ) : (
+                <div className="absolute -bottom-4 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-[7px] text-white/20 cursor-pointer hover:text-white/50"
+                    onDoubleClick={e => { e.stopPropagation(); setFrameLabelVal(""); setEditingFrameLabel(idx); }}>
+                    label
+                  </span>
+                </div>
+              )}
             </div>
           ))}
           {/* Add frame button in strip */}
