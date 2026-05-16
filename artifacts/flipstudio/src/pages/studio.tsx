@@ -909,6 +909,8 @@ export default function Studio() {
       const prev = new Map(layerStrokes.current);
       undoStack.current.push(prev); redoStack.current = [];
       curStroke.current = stroke;
+      // *** CRITICAL FIX: allCurStrokes must be set for shape tools so endDraw can commit ***
+      allCurStrokes.current = [stroke]; // shares object reference – continueDraw mutations reflected here
     }
   }, [isPlaying, tool, panOffset, getPos, currentLayerId, currentLayer, color, size, opacity, hardness, flow, symmetryMode, filledShape, polygonSides, commitColor, redraw, scheduleAutoSave]);
 
@@ -1084,9 +1086,15 @@ export default function Studio() {
       if ((e.ctrlKey || e.metaKey) && e.key === "y") { e.preventDefault(); redo(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "c") { e.preventDefault(); copyLayer(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "v") { e.preventDefault(); pasteLayer(); }
-      if (e.key === "[") setCurrentFrameIdx(i => Math.max(0, i - 1));
-      if (e.key === "]") setCurrentFrameIdx(i => Math.min(frames.length - 1, i + 1));
-      if (e.key === " " && !isPlaying) { e.preventDefault(); setIsPlaying(true); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "d") { e.preventDefault(); void duplicateFrame(currentFrameIdx); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "=") { e.preventDefault(); setZoom(z => Math.min(16, z * 1.25)); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); setZoom(z => Math.max(0.1, z * 0.8)); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") { e.preventDefault(); setZoom(1); setPanOffset({ x: 0, y: 0 }); }
+      if (e.key === "ArrowLeft" && !e.ctrlKey) { e.preventDefault(); void switchFrame(currentFrameIdx - 1); }
+      if (e.key === "ArrowRight" && !e.ctrlKey) { e.preventDefault(); void switchFrame(currentFrameIdx + 1); }
+      if (e.key === "[") { setSize(s => Math.max(1, s - 2)); }
+      if (e.key === "]") { setSize(s => Math.min(200, s + 2)); }
+      if (e.key === " ") { e.preventDefault(); if (isPlaying) setIsPlaying(false); else setIsPlaying(true); }
       if (e.key === "Escape") { setIsPlaying(false); setTextInput(null); setSelectionRect(null); }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectionRect && currentLayerId && !currentLayer?.locked) {
@@ -1104,7 +1112,7 @@ export default function Studio() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [textInput, undo, redo, copyLayer, pasteLayer, frames.length, isPlaying, selectionRect, currentLayerId, currentLayer, redraw, scheduleAutoSave]);
+  }, [textInput, undo, redo, copyLayer, pasteLayer, duplicateFrame, switchFrame, frames.length, isPlaying, selectionRect, currentLayerId, currentLayer, currentFrameIdx, redraw, scheduleAutoSave]);
 
   // ─── Export single frame ─────────────────────────────────────────────────────
   const exportCurrentFrame = useCallback(() => {
@@ -1517,8 +1525,33 @@ export default function Studio() {
                   className="[&_[role=slider]]:bg-violet-500 [&_[role=slider]]:border-0"/>
               </div>
             ))}
+            {/* Brush Presets */}
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              <span className="text-[10px] text-white/25 uppercase tracking-wider font-bold block mb-2">Quick Presets</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { label: "Inking",     tool: "pen"        as Tool, size: 4,  opacity: 100, hardness: 100, flow: 100, stabilizer: 4 },
+                  { label: "Sketch",     tool: "pencil"     as Tool, size: 6,  opacity: 80,  hardness: 60,  flow: 85,  stabilizer: 2 },
+                  { label: "Brush",      tool: "brush"      as Tool, size: 14, opacity: 70,  hardness: 40,  flow: 80,  stabilizer: 3 },
+                  { label: "Marker",     tool: "marker"     as Tool, size: 20, opacity: 85,  hardness: 100, flow: 100, stabilizer: 1 },
+                  { label: "Watercolor", tool: "watercolor" as Tool, size: 18, opacity: 55,  hardness: 20,  flow: 60,  stabilizer: 3 },
+                  { label: "Calligraphy",tool: "calligraphy"as Tool, size: 12, opacity: 90,  hardness: 80,  flow: 90,  stabilizer: 2 },
+                  { label: "Spray",      tool: "spray"      as Tool, size: 25, opacity: 65,  hardness: 30,  flow: 70,  stabilizer: 0 },
+                  { label: "Chalk",      tool: "chalk"      as Tool, size: 16, opacity: 70,  hardness: 50,  flow: 75,  stabilizer: 1 },
+                ].map(p => (
+                  <button key={p.label}
+                    onClick={() => { setTool(p.tool); setSize(p.size); setOpacity(p.opacity); setHardness(p.hardness); setFlow(p.flow); setBrushStabilizer(p.stabilizer); }}
+                    className={cn("py-1.5 px-2 rounded-lg text-[10px] font-semibold transition-all border",
+                      tool === p.tool
+                        ? "border-violet-500/50 bg-violet-600/15 text-violet-300"
+                        : "border-white/[0.07] text-white/40 hover:border-white/15 hover:text-white/70")}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {/* Filled shape toggle */}
-            <div className="flex items-center justify-between mt-2">
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
               <span className="text-[11px] text-white/35">Filled shapes</span>
               <button className={cn("w-10 h-5 rounded-full transition-all relative",
                 filledShape ? "bg-violet-600" : "bg-white/10")}
