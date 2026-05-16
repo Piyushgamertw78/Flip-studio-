@@ -154,6 +154,10 @@ export default function Studio() {
   const [renameValue, setRenameValue]         = useState("");
   const [showRenameProject, setShowRenameProject] = useState(false);
   const [projectNameVal, setProjectNameVal]   = useState("");
+  const [showResizeDialog, setShowResizeDialog] = useState(false);
+  const [resizeW, setResizeW] = useState(800);
+  const [resizeH, setResizeH] = useState(600);
+  const [isExportingWebm, setIsExportingWebm] = useState(false);
 
   // Animation
   const [isPlaying, setIsPlaying]       = useState(false);
@@ -1206,6 +1210,66 @@ export default function Studio() {
     }
   }, [project, frames, layers]);
 
+  // ─── Canvas resize ────────────────────────────────────────────────────────────
+  const applyCanvasResize = useCallback(async () => {
+    if (!project) return;
+    const w = Math.max(64, Math.min(4096, resizeW));
+    const h = Math.max(64, Math.min(4096, resizeH));
+    await db.projects.update(projectId, { width: w, height: h });
+    setProject(p => p ? { ...p, width: w, height: h } : p);
+    setShowResizeDialog(false);
+    redraw();
+  }, [project, projectId, resizeW, resizeH, redraw]);
+
+  // ─── WebM video export ────────────────────────────────────────────────────────
+  const exportWebm = useCallback(async () => {
+    if (!project || frames.length === 0) return;
+    setIsExportingWebm(true);
+    try {
+      const W = project.width ?? 800;
+      const H = project.height ?? 600;
+      const fps = project.fps ?? 12;
+      const tmpCanvas = document.createElement("canvas");
+      tmpCanvas.width = W; tmpCanvas.height = H;
+      const tmpCtx = tmpCanvas.getContext("2d")!;
+
+      const stream = tmpCanvas.captureStream(fps);
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : "video/webm";
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 4_000_000 });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `${project.name ?? "animation"}.webm`; a.click();
+        URL.revokeObjectURL(url);
+        setIsExportingWebm(false);
+      };
+
+      recorder.start();
+      const { compositeAllLayers, safeParseCanvas: spc } = await import("../lib/rendering");
+      const frameDelay = Math.round(1000 / fps);
+
+      for (let fi = 0; fi < frames.length; fi++) {
+        const frame = frames[fi];
+        const frameLayers = layers.filter(l => l.frameId === frame.id);
+        const layerStrokesMap = new Map<number, import("../lib/rendering").Stroke[]>();
+        for (const layer of frameLayers) layerStrokesMap.set(layer.id, spc(layer.canvasData).strokes);
+        compositeAllLayers(tmpCtx, frameLayers, layerStrokesMap, W, H, project.backgroundColor ?? "#ffffff");
+        const delay = (frame.duration && frame.duration > 0) ? frame.duration : frameDelay;
+        await new Promise(r => setTimeout(r, delay));
+      }
+
+      recorder.stop();
+    } catch (err) {
+      console.error("WebM export failed", err);
+      setIsExportingWebm(false);
+    }
+  }, [project, frames, layers]);
+
   // ─── Per-frame delay ──────────────────────────────────────────────────────────
   const updateFrameDelay = useCallback(async (frameIdx: number, delayMs: number) => {
     const frame = frames[frameIdx];
@@ -1348,6 +1412,11 @@ export default function Studio() {
                 showGrid ? "bg-violet-600/30 text-violet-300" : "text-white/30 hover:text-white hover:bg-white/8")}>
               <Grid3X3 className="w-4 h-4"/>
             </button>
+            <button onClick={() => { setResizeW(project?.width ?? 800); setResizeH(project?.height ?? 600); setShowResizeDialog(true); }}
+              title="Resize Canvas"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/8 transition-colors shrink-0">
+              <Maximize2 className="w-4 h-4"/>
+            </button>
             {/* Background color picker */}
             <div className="relative shrink-0">
               <button title="Canvas Background Color" onClick={() => setShowBgPicker(p => !p)}
@@ -1391,6 +1460,11 @@ export default function Studio() {
               title="Export all frames as animated GIF"
               className="flex items-center gap-1 px-2.5 h-9 rounded-xl text-[12px] font-bold bg-emerald-700/60 hover:bg-emerald-600/70 text-emerald-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait shrink-0">
               {isExportingGif ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/> GIF…</> : <>GIF</>}
+            </button>
+            <button onClick={() => void exportWebm()} disabled={isExportingWebm}
+              title="Export animation as WebM video"
+              className="flex items-center gap-1 px-2.5 h-9 rounded-xl text-[12px] font-bold bg-sky-700/60 hover:bg-sky-600/70 text-sky-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait shrink-0">
+              {isExportingWebm ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/> MP4…</> : <>WebM</>}
             </button>
             <button onClick={() => setLocation("/projects/" + projectId + "/export")}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[13px] font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95 shrink-0">
@@ -1842,6 +1916,44 @@ export default function Studio() {
         )}
 
         {/* ── Shortcuts Modal ── */}
+        {/* Canvas Resize Dialog */}
+        {showResizeDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowResizeDialog(false)}>
+            <div className="bg-[#13131f] border border-white/10 rounded-2xl p-5 w-64 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-semibold text-white/70">Resize Canvas</span>
+                <button onClick={() => setShowResizeDialog(false)} className="text-white/30 hover:text-white"><X className="w-4 h-4"/></button>
+              </div>
+              <p className="text-[11px] text-white/30 mb-3">Current: {project?.width ?? 800} × {project?.height ?? 600}px</p>
+              <div className="space-y-3 mb-4">
+                {[["Width", resizeW, setResizeW], ["Height", resizeH, setResizeH]].map(([label, val, setter]) => (
+                  <div key={label as string}>
+                    <label className="text-[11px] text-white/40 block mb-1">{label as string} (px)</label>
+                    <input type="number" min={64} max={4096} value={val as number}
+                      onChange={e => (setter as (v: number) => void)(Number(e.target.value))}
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg text-white text-sm px-3 py-2 outline-none focus:border-violet-500/50"/>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {[
+                  ["640×480", 640, 480], ["800×600", 800, 600], ["1080×1080", 1080, 1080],
+                  ["1920×1080", 1920, 1080], ["1080×1920", 1080, 1920],
+                ].map(([label, w, h]) => (
+                  <button key={label as string} onClick={() => { setResizeW(w as number); setResizeH(h as number); }}
+                    className="text-[9px] text-white/40 hover:text-violet-300 bg-white/[0.04] hover:bg-violet-600/15 rounded-lg px-1.5 py-1 transition-all border border-white/[0.06]">
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => void applyCanvasResize()}
+                className="w-full mt-4 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white hover:from-violet-500 hover:to-fuchsia-500 transition-all">
+                Apply Resize
+              </button>
+            </div>
+          </div>
+        )}
+
         {showShortcuts && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowShortcuts(false)}>
             <div className="bg-[#13131f] border border-white/10 rounded-2xl p-5 w-72 max-h-[80vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
