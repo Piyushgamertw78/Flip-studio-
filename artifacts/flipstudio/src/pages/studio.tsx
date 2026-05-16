@@ -2312,15 +2312,34 @@ export default function Studio() {
               className="absolute inset-0 pointer-events-none"
               style={{ width: canvasDisplayW, height: "auto" }}
             />
+            {/* Visual brush cursor overlay */}
+            {cursorPos && !isPlaying && tool !== "move" && tool !== "text" && tool !== "eyedropper" && (
+              <div className="absolute pointer-events-none" style={{
+                left: cursorPos.x - size / 2,
+                top: cursorPos.y - size / 2,
+                width: size, height: size,
+                borderRadius: "50%",
+                border: `1.5px solid ${tool === "eraser" ? "rgba(255,100,100,0.7)" : color}`,
+                boxShadow: `0 0 0 1px rgba(0,0,0,0.4)`,
+                opacity: 0.85,
+                zIndex: 10,
+              }}/>
+            )}
             {/* Event canvas on top */}
             <canvas width={CW} height={CH}
               className="absolute inset-0 block"
               style={{
                 width: canvasDisplayW, height: "auto",
-                cursor: tool === "move" ? "grab" : tool === "text" ? "text" : tool === "eyedropper" ? "crosshair" : "crosshair",
+                cursor: tool === "move" ? "grab" : tool === "text" ? "text" : tool === "eyedropper" ? "crosshair" : "none",
                 touchAction: "none",
                 opacity: 0,
               }}
+              onMouseMove={e => {
+                const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+                const scale = CW / rect.width;
+                setCursorPos({ x: (e.clientX - rect.left) / scale * (rect.width / CW) * scale / scale, y: (e.clientY - rect.top) / scale * (rect.height / CH) * scale / scale });
+              }}
+              onMouseLeave={() => setCursorPos(null)}
               onMouseDown={startDraw} onMouseMove={continueDraw} onMouseUp={endDraw} onMouseLeave={endDraw}
               onTouchStart={startDraw} onTouchMove={continueDraw} onTouchEnd={endDraw}
             />
