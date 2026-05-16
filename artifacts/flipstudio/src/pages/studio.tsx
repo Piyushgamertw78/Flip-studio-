@@ -708,6 +708,21 @@ export default function Studio() {
     await deleteLayer(above.id);
   }, [layers, deleteLayer]);
 
+  const mergeAllVisibleLayers = useCallback(async () => {
+    const visibleSorted = [...layers].filter(l => l.visible).sort((a, b) => a.order - b.order);
+    if (visibleSorted.length < 2) return;
+    const bottom = visibleSorted[0]!;
+    let merged: Stroke[] = layerStrokes.current.get(bottom.id) ?? [];
+    for (const layer of visibleSorted.slice(1)) {
+      const strokes = layerStrokes.current.get(layer.id) ?? [];
+      merged = [...merged, ...strokes];
+      await deleteLayer(layer.id);
+    }
+    layerStrokes.current.set(bottom.id, merged);
+    await db.layers.update(bottom.id, { canvasData: JSON.stringify({ strokes: merged }) });
+    redraw(); scheduleAutoSave();
+  }, [layers, deleteLayer, redraw, scheduleAutoSave]);
+
   const clearCurrentLayer = useCallback(() => {
     if (!currentLayerId || currentLayer?.locked) return;
     const prev = new Map(layerStrokes.current);
@@ -1210,6 +1225,53 @@ export default function Studio() {
     }
   }, [project, frames, layers]);
 
+  // ─── PNG sequence ZIP export ─────────────────────────────────────────────────
+  const [isExportingPng, setIsExportingPng] = useState(false);
+  const exportPngSequence = useCallback(async () => {
+    if (!project || frames.length === 0) return;
+    setIsExportingPng(true);
+    try {
+      const JSZip = await new Promise<any>((resolve, reject) => {
+        if ((window as any).JSZip) { resolve((window as any).JSZip); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+        s.onload = () => resolve((window as any).JSZip);
+        s.onerror = () => reject(new Error("Failed to load JSZip"));
+        document.head.appendChild(s);
+      });
+
+      const W = project.width ?? 800;
+      const H = project.height ?? 600;
+      const { compositeAllLayers, safeParseCanvas: spc } = await import("../lib/rendering");
+      const zip = new JSZip();
+      const folder = zip.folder(project.name ?? "frames")!;
+
+      for (let fi = 0; fi < frames.length; fi++) {
+        const frame = frames[fi];
+        const tmp = document.createElement("canvas");
+        tmp.width = W; tmp.height = H;
+        const ctx = tmp.getContext("2d")!;
+        const frameLayers = layers.filter(l => l.frameId === frame.id);
+        const lsMap = new Map<number, import("../lib/rendering").Stroke[]>();
+        for (const l of frameLayers) lsMap.set(l.id, spc(l.canvasData).strokes);
+        compositeAllLayers(ctx, frameLayers, lsMap, W, H, project.backgroundColor ?? "#ffffff");
+        const blob: Blob = await new Promise(r => tmp.toBlob(b => r(b!), "image/png"));
+        const arr = await blob.arrayBuffer();
+        folder.file(`frame_${String(fi + 1).padStart(4, "0")}.png`, arr);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${project.name ?? "animation"}_frames.zip`; a.click();
+      URL.revokeObjectURL(url);
+      setIsExportingPng(false);
+    } catch (err) {
+      console.error("PNG sequence export failed", err);
+      setIsExportingPng(false);
+    }
+  }, [project, frames, layers]);
+
   // ─── Canvas resize ────────────────────────────────────────────────────────────
   const applyCanvasResize = useCallback(async () => {
     if (!project) return;
@@ -1465,6 +1527,11 @@ export default function Studio() {
               title="Export animation as WebM video"
               className="flex items-center gap-1 px-2.5 h-9 rounded-xl text-[12px] font-bold bg-sky-700/60 hover:bg-sky-600/70 text-sky-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait shrink-0">
               {isExportingWebm ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/> MP4…</> : <>WebM</>}
+            </button>
+            <button onClick={() => void exportPngSequence()} disabled={isExportingPng}
+              title="Export all frames as PNG sequence (ZIP)"
+              className="flex items-center gap-1 px-2.5 h-9 rounded-xl text-[12px] font-bold bg-orange-700/60 hover:bg-orange-600/70 text-orange-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait shrink-0">
+              {isExportingPng ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/> ZIP…</> : <>PNGs</>}
             </button>
             <button onClick={() => setLocation("/projects/" + projectId + "/export")}
               className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[13px] font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white transition-all shadow-lg shadow-violet-900/30 active:scale-95 shrink-0">
@@ -2213,6 +2280,12 @@ export default function Studio() {
                   )}
                 </div>
               ))}
+              {layers.filter(l => l.visible).length >= 2 && (
+                <button className="w-full h-6 mt-1 rounded-lg text-[9px] text-white/30 hover:text-amber-300 hover:bg-amber-500/10 flex items-center justify-center gap-1 border border-transparent hover:border-amber-500/20 transition-all"
+                  onClick={() => void mergeAllVisibleLayers()}>
+                  <Layers className="w-2.5 h-2.5"/> Merge All Visible
+                </button>
+              )}
               {layers.length === 0 && (
                 <div className="flex flex-col items-center py-8 gap-2">
                   <Layers className="w-5 h-5 text-white/15"/>
